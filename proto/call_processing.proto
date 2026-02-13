@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package callprocessing.v1;
+
+option go_package = "callprocessing/v1;callprocessingv1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+message Segment {
+  double start = 1;
+  double end = 2;
+  string speaker = 3;
+  string role = 4;
+  string text = 5;
+}
+
+message Transcript {
+  string call_id = 1;
+  repeated Segment segments = 2;
+  map<string, string> role_mapping = 3;
+  google.protobuf.Struct metadata = 4;
+}
+
+message Routing {
+  string intent_id = 1;
+  double intent_confidence = 2;
+  string priority = 3;
+  string suggested_group = 4;
+}
+
+message ExtractedEntity {
+  string type = 1;
+  string value = 2;
+  double confidence = 3;
+  string context = 4;
+}
+
+message Entities {
+  repeated ExtractedEntity persons = 1;
+  repeated ExtractedEntity phones = 2;
+  repeated ExtractedEntity emails = 3;
+  repeated ExtractedEntity order_ids = 4;
+  repeated ExtractedEntity account_ids = 5;
+  repeated ExtractedEntity money_amounts = 6;
+  repeated ExtractedEntity dates = 7;
+}
+
+message TicketCreated {
+  string ticket_id = 1;
+  string external_id = 2;
+  string url = 3;
+  string system = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message TranscribeRequest {
+  bytes audio = 1;
+  string filename = 2;
+  string call_id = 3;
+}
+
+message TranscribeResponse {
+  Transcript transcript = 1;
+}
+
+message RouteRequest {
+  string call_id = 1;
+  repeated Segment segments = 2;
+}
+
+message RouteResponse {
+  Routing routing = 1;
+}
+
+message ExtractEntitiesRequest {
+  repeated Segment segments = 1;
+}
+
+message ExtractEntitiesResponse {
+  Entities entities = 1;
+}
+
+message CreateTicketRequest {
+  Transcript transcript = 1;
+  Routing routing = 2;
+  Entities entities = 3;
+  string audio_url = 4;
+}
+
+message CreateTicketResponse {
+  TicketCreated ticket = 1;
+}
+
+message ProcessCallRequest {
+  bytes audio = 1;
+  string filename = 2;
+  string call_id = 3;
+}
+
+message ProcessCallResponse {
+  string call_id = 1;
+  Transcript transcript = 2;
+  Routing routing = 3;
+  Entities entities = 4;
+  TicketCreated ticket = 5;
+  map<string, double> processing_time = 6;
+  double total_time = 7;
+}
+
+service TranscriptionService {
+  rpc Transcribe(TranscribeRequest) returns (TranscribeResponse);
+}
+
+service RoutingService {
+  rpc Route(RouteRequest) returns (RouteResponse);
+}
+
+service EntityExtractionService {
+  rpc ExtractEntities(ExtractEntitiesRequest) returns (ExtractEntitiesResponse);
+}
+
+service TicketService {
+  rpc CreateTicket(CreateTicketRequest) returns (CreateTicketResponse);
+}
+
+service OrchestratorService {
+  rpc ProcessCall(ProcessCallRequest) returns (ProcessCallResponse);
+}
