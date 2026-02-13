@@ -10,8 +10,8 @@ from pathlib import Path
 import grpc
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "grpc_gen"))
-import call_processing_pb2 as pb2
-import call_processing_pb2_grpc as pb2_grpc
+import grpc_gen.call_processing_pb2 as pb2
+import grpc_gen.call_processing_pb2_grpc as pb2_grpc
 from routing.ai_analyzer import RubertEmbeddingAnalyzer
 from routing.models import CallInput, Segment
 

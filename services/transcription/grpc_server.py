@@ -1,113 +1,191 @@
+#!/usr/bin/env python
+# services/transcription/grpc_server.py
+
 from __future__ import annotations
 
-import logging
 import os
 import sys
+import json
 import tempfile
-import uuid
-from concurrent import futures
+import time
+import logging
 from pathlib import Path
-from typing import Optional
+from concurrent import futures
+from typing import Dict, Any, Optional
+
+# Добавляем текущую директорию в путь Python
+CURRENT_DIR = Path(__file__).parent.absolute()
+sys.path.insert(0, str(CURRENT_DIR))
 
 import grpc
-from google.protobuf import struct_pb2
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "grpc_gen"))
-import call_processing_pb2 as pb2
-import call_processing_pb2_grpc as pb2_grpc
-from transcribe.pipeline import transcribe_with_roles
+# Импортируем сгенерированные protobuf файлы
+try:
+    from grpc_gen import call_processing_pb2 as pb2
+    from grpc_gen import call_processing_pb2_grpc as pb2_grpc
+    print("✓ Imported protobuf modules from grpc_gen")
+except ImportError as e:
+    print(f"✗ Failed to import protobuf modules: {e}")
+    print(f"Make sure grpc_gen/__init__.py exists")
+    sys.exit(1)
 
+# Импортируем вашу логику транскрибации
+try:
+    from transcribe_logic.pipeline import transcribe_with_roles
+    print("✓ Imported transcribe_with_roles")
+except ImportError as e:
+    print(f"✗ Failed to import transcribe_with_roles: {e}")
+    print(f"Current directory: {CURRENT_DIR}")
+    print(f"Files: {list(CURRENT_DIR.glob('*'))}")
+    sys.exit(1)
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("transcription-grpc")
+logger = logging.getLogger(__name__)
 
 
-class TranscriptionService(pb2_grpc.TranscriptionServiceServicer):
-    def __init__(self, model_name: str, hf_token: Optional[str] = None) -> None:
-        self.model_name = model_name
-        self.hf_token = hf_token
-
-    def Transcribe(self, request: pb2.TranscribeRequest, context: grpc.ServicerContext) -> pb2.TranscribeResponse:
-        if not request.audio:
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details("audio is required")
-            return pb2.TranscribeResponse()
-
-        suffix = Path(request.filename or "audio.wav").suffix or ".wav"
-        call_id = request.call_id or f"call_{uuid.uuid4().hex[:12]}"
-
+class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
+    """gRPC сервис для транскрибации с использованием whisper-diarization"""
+    
+    def __init__(self):
+        logger.info("Initializing TranscriptionServicer")
+        # Пути к whisper-diarization из переменных окружения или по умолчанию
+        self.whisper_repo_dir = os.getenv(
+            "WHISPER_REPO_DIR", 
+            "/home/dmitrii/whisper-diarization"
+        )
+        self.whisper_venv_python = os.getenv(
+            "WHISPER_VENV_PYTHON",
+            "/home/dmitrii/whisper-diarization/whisper_venv/bin/python"
+        )
+        logger.info(f"Whisper repo: {self.whisper_repo_dir}")
+        logger.info(f"Whisper venv: {self.whisper_venv_python}")
+    
+    def _convert_to_proto_segments(self, segments: list) -> list:
+        """Конвертирует сегменты в protobuf формат"""
+        proto_segments = []
+        for seg in segments:
+            proto_seg = pb2.Segment(
+                start=float(seg.get("start", 0)),
+                end=float(seg.get("end", 0)),
+                speaker=seg.get("speaker", ""),
+                role=seg.get("role", ""),
+                text=seg.get("text", "")
+            )
+            proto_segments.append(proto_seg)
+        return proto_segments
+    
+    def Transcribe(self, request, context):
+        """
+        Обрабатывает запрос на транскрибацию
+        """
+        start_time = time.time()
+        logger.info(f"Received request: call_id={request.call_id}, filename={request.filename}")
+        
+        temp_file = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_file:
-                tmp_file.write(request.audio)
-                tmp_audio_path = tmp_file.name
-
+            # Сохраняем аудио во временный файл
+            file_ext = os.path.splitext(request.filename)[1] or '.mp3'
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                tmp.write(request.audio)
+                temp_file = tmp.name
+            
+            logger.info(f"Saved audio to temporary file: {temp_file} ({len(request.audio)} bytes)")
+            
+            # Вызываем функцию транскрибации
             result = transcribe_with_roles(
-                tmp_audio_path,
-                gigaam_model_name=self.model_name,
-                hf_token=self.hf_token,
+                audio_path=temp_file,
+                no_stem=False,  # или можно передавать из запроса
+                whisper_repo_dir=self.whisper_repo_dir,
+                whisper_venv_python=self.whisper_venv_python
             )
-        except Exception as exc:
-            logger.exception("transcription failed")
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(f"transcription failed: {exc}")
-            return pb2.TranscribeResponse()
-        finally:
-            if "tmp_audio_path" in locals():
-                try:
-                    os.remove(tmp_audio_path)
-                except OSError:
-                    pass
-
-        segments = [
-            pb2.Segment(
-                start=float(item.get("start", 0.0)),
-                end=float(item.get("end", 0.0)),
-                speaker=str(item.get("speaker", "")),
-                role=str(item.get("role", "")),
-                text=str(item.get("text", "")),
-            )
-            for item in result.get("segments", [])
-        ]
-
-        metadata = struct_pb2.Struct()
-        metadata.update(
-            {
-                "mode": result.get("mode", ""),
-                "input": result.get("input", request.filename or ""),
+            
+            # Создаем ответ
+            transcript = pb2.Transcript()
+            transcript.call_id = request.call_id
+            
+            # Добавляем сегменты
+            for seg in result.get("segments", []):
+                proto_seg = transcript.segments.add()
+                proto_seg.start = float(seg.get("start", 0))
+                proto_seg.end = float(seg.get("end", 0))
+                proto_seg.speaker = seg.get("speaker", "")
+                proto_seg.role = seg.get("role", "")
+                proto_seg.text = seg.get("text", "")
+            
+            # Добавляем role_mapping
+            role_mapping = result.get("role_mapping", {})
+            for key, value in role_mapping.items():
+                transcript.role_mapping[key] = value
+            
+            # Добавляем метаданные
+            metadata = {
+                "mode": result.get("mode", "whisper-diarization"),
+                "input": result.get("input", ""),
                 "note": result.get("note", ""),
+                "processing_time_seconds": str(round(time.time() - start_time, 2))
             }
-        )
+            
+            # Конвертируем метаданные в google.protobuf.Struct
+            for key, value in metadata.items():
+                transcript.metadata[key] = value
+            
+            processing_time = time.time() - start_time
+            logger.info(f"Transcription completed in {processing_time:.2f}s, segments: {len(transcript.segments)}")
+            
+            return pb2.TranscribeResponse(transcript=transcript)
+            
+        except Exception as e:
+            logger.error(f"Transcription failed: {e}", exc_info=True)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Transcription failed: {str(e)}")
+            return pb2.TranscribeResponse()
+            
+        finally:
+            # Удаляем временный файл
+            if temp_file and os.path.exists(temp_file):
+                os.unlink(temp_file)
+                logger.debug(f"Deleted temporary file: {temp_file}")
 
-        transcript = pb2.Transcript(
-            call_id=call_id,
-            segments=segments,
-            role_mapping={
-                str(k): str(v) for k, v in (result.get("role_mapping") or {}).items()
-            },
-            metadata=metadata,
-        )
-        return pb2.TranscribeResponse(transcript=transcript)
 
-
-def serve() -> None:
-    port = os.getenv("TRANSCRIPTION_GRPC_PORT", "50051")
-    model_name = os.getenv("GIGAAM_MODEL_NAME", "v3_e2e_rnnt")
-    hf_token = os.getenv("HF_TOKEN")
-
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    pb2_grpc.add_TranscriptionServiceServicer_to_server(
-        TranscriptionService(model_name=model_name, hf_token=hf_token),
-        server,
+def serve():
+    """Запускает gRPC сервер"""
+    # Параметры сервера из переменных окружения
+    host = os.getenv("GRPC_HOST", "[::]")
+    port = int(os.getenv("GRPC_PORT", 50051))
+    max_workers = int(os.getenv("GRPC_MAX_WORKERS", 4))
+    
+    # Создаем сервер
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+        maximum_concurrent_rpcs=max_workers
     )
-
-    listen_addr = f"[::]:{port}"
-    server.add_insecure_port(listen_addr)
+    
+    # Добавляем сервис
+    pb2_grpc.add_TranscriptionServiceServicer_to_server(
+        TranscriptionServicer(), server
+    )
+    
+    # Привязываем к порту
+    server_address = f"{host}:{port}"
+    server.add_insecure_port(server_address)
+    
+    logger.info(f"Starting transcription server on {server_address}")
+    logger.info(f"Max workers: {max_workers}")
+    logger.info(f"Whisper repo: {os.getenv('WHISPER_REPO_DIR', '/home/dmitrii/whisper-diarization')}")
+    
+    # Запускаем
     server.start()
-    logger.info("Transcription gRPC server listening on %s", listen_addr)
-    server.wait_for_termination()
+    logger.info("Server is ready to accept requests")
+    
+    try:
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        logger.info("Shutting down server...")
+        server.stop(0)
 
 
 if __name__ == "__main__":

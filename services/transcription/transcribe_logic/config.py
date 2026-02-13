@@ -20,7 +20,7 @@ class CutCfg:
 class SilenceCfg:
     # silencedetect params
     silence_db: float = -35.0
-    silence_min_dur: float = 0.35
+    silence_min_dur: float = 0.25
 
     # splitting by silence
     split_max_len: float = 4.0
@@ -30,7 +30,7 @@ class SilenceCfg:
 
 @dataclass
 class TurnsCfg:
-    merge_max_gap: float = 0.2
+    merge_max_gap: float = 0.1
     merge_min_dur: float = 0.25
 
     long_turn_max_len: float = 6

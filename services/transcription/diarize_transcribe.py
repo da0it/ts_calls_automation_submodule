@@ -388,7 +388,6 @@ def transcribe_with_roles(
         if _is_fake_stereo(audio_path):
             return diarize_mono_and_transcribe(
                 audio_path=audio_path,
-                gigaam_model_name=gigaam_model_name,
                 expected_speakers=expected_speakers,
                 hf_token=hf_token,
             )
@@ -397,12 +396,10 @@ def transcribe_with_roles(
             audio_path=audio_path,
             caller_channel=caller_channel,
             answerer_channel=answerer_channel,
-            gigaam_model_name=gigaam_model_name,
             hf_token=hf_token,
         )
     return diarize_mono_and_transcribe(
         audio_path=audio_path,
-        gigaam_model_name=gigaam_model_name,
         expected_speakers=expected_speakers,
         hf_token=hf_token,
     )
@@ -413,7 +410,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", help="mp3/ogg/wav")
     ap.add_argument("--out", default="", help="output json (default stdout)")
-    ap.add_argument("--model", default="v3_e2e_rnnt", help="GigaAM model name")
     ap.add_argument("--speakers", type=int, default=2, help="expected speakers for mono diarization")
     ap.add_argument("--caller-channel", type=int, default=0, help="0/1 for stereo")
     ap.add_argument("--answerer-channel", type=int, default=1, help="0/1 for stereo")
@@ -421,7 +417,6 @@ if __name__ == "__main__":
 
     res = transcribe_with_roles(
         args.audio,
-        gigaam_model_name=args.model,
         expected_speakers=args.speakers,
         caller_channel=args.caller_channel,
         answerer_channel=args.answerer_channel,
