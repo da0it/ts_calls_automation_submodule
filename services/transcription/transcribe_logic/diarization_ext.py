@@ -6,8 +6,31 @@ import subprocess
 from typing import Any, Dict, List, Optional
 
 
+def _default_whisper_venv_python(repo_dir: str) -> str:
+    candidates = [
+        os.path.join(repo_dir, ".venv", "bin", "python"),
+        os.path.join(repo_dir, "whisper_venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
+
+
 def _run(cmd: List[str]) -> None:
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    timeout_sec = int(os.getenv("WHISPER_DIARIZATION_TIMEOUT_SECONDS", "1800"))
+    try:
+        p = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"External diarizer timed out after {timeout_sec}s: {' '.join(cmd)}"
+        ) from exc
     if p.returncode != 0:
         raise RuntimeError(
             "External diarizer failed:\n"
@@ -68,16 +91,19 @@ def _parse_srt(srt_text: str) -> List[Dict[str, Any]]:
 def whisper_diarize_via_cli(
     audio_path: str,
     *,
-    repo_dir: str = "/home/dmitrii/whisper-diarization",
-    venv_python: str = "/home/dmitrii/whisper-diarization/.venv/bin/python",
+    repo_dir: str = os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
+    venv_python: Optional[str] = None,
     no_stem: bool = False,
     language: str = "ru",
     whisper_model: str = "medium"
 ) -> List[Dict[str, Any]]:
     """
-    Запускает /home/dmitrii/whisper-diarization/diarize.py -a <audio_path>
+    Запускает <repo_dir>/diarize.py -a <audio_path>
     Возвращает segments из <audio>.srt (ожидаемый артефакт работы скрипта).
     """
+    if venv_python is None:
+        venv_python = os.getenv("WHISPER_VENV_PYTHON", _default_whisper_venv_python(repo_dir))
+
     diarize_py = os.path.join(repo_dir, "diarize.py")
     if not os.path.exists(venv_python):
         raise RuntimeError(f"venv python not found: {venv_python}")

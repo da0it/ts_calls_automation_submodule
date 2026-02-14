@@ -5,13 +5,11 @@ from __future__ import annotations
 
 import os
 import sys
-import json
 import tempfile
 import time
 import logging
 from pathlib import Path
 from concurrent import futures
-from typing import Dict, Any, Optional
 
 # Добавляем текущую директорию в путь Python
 CURRENT_DIR = Path(__file__).parent.absolute()
@@ -47,6 +45,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _default_whisper_venv_python() -> str:
+    home = os.path.expanduser("~/whisper-diarization")
+    candidates = [
+        os.path.join(home, ".venv", "bin", "python"),
+        os.path.join(home, "whisper_venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
+
+
 class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
     """gRPC сервис для транскрибации с использованием whisper-diarization"""
     
@@ -55,11 +65,11 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
         # Пути к whisper-diarization из переменных окружения или по умолчанию
         self.whisper_repo_dir = os.getenv(
             "WHISPER_REPO_DIR", 
-            "/home/dmitrii/whisper-diarization"
+            os.path.expanduser("~/whisper-diarization")
         )
         self.whisper_venv_python = os.getenv(
             "WHISPER_VENV_PYTHON",
-            "/home/dmitrii/whisper-diarization/whisper_venv/bin/python"
+            _default_whisper_venv_python()
         )
         logger.info(f"Whisper repo: {self.whisper_repo_dir}")
         logger.info(f"Whisper venv: {self.whisper_venv_python}")
@@ -84,11 +94,16 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
         """
         start_time = time.time()
         logger.info(f"Received request: call_id={request.call_id}, filename={request.filename}")
+
+        if not request.audio:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("audio is required")
+            return pb2.TranscribeResponse()
         
         temp_file = None
         try:
             # Сохраняем аудио во временный файл
-            file_ext = os.path.splitext(request.filename)[1] or '.mp3'
+            file_ext = Path(request.filename).suffix or ".mp3"
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                 tmp.write(request.audio)
                 temp_file = tmp.name
@@ -154,8 +169,8 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
 def serve():
     """Запускает gRPC сервер"""
     # Параметры сервера из переменных окружения
-    host = os.getenv("GRPC_HOST", "[::]")
-    port = int(os.getenv("GRPC_PORT", 50051))
+    host = os.getenv("GRPC_HOST", "0.0.0.0")
+    port = int(os.getenv("TRANSCRIPTION_GRPC_PORT", os.getenv("GRPC_PORT", "50051")))
     max_workers = int(os.getenv("GRPC_MAX_WORKERS", 4))
     
     # Создаем сервер
@@ -175,7 +190,10 @@ def serve():
     
     logger.info(f"Starting transcription server on {server_address}")
     logger.info(f"Max workers: {max_workers}")
-    logger.info(f"Whisper repo: {os.getenv('WHISPER_REPO_DIR', '/home/dmitrii/whisper-diarization')}")
+    logger.info(
+        "Whisper repo: %s",
+        os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
+    )
     
     # Запускаем
     server.start()

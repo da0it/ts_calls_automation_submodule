@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	callprocessingv1 "orchestrator/internal/gen"
@@ -55,7 +56,13 @@ func (c *TranscriptionClient) Transcribe(audioPath string) (*TranscriptionRespon
 		return nil, fmt.Errorf("read audio file: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	timeoutSec := 9999
+	if raw := os.Getenv("TRANSCRIPTION_RPC_TIMEOUT_SECONDS"); raw != "" {
+		if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+			timeoutSec = parsed
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	resp, err := c.client.Transcribe(ctx, &callprocessingv1.TranscribeRequest{

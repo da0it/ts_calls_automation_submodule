@@ -44,6 +44,12 @@ func main() {
 	}
 	defer ticketClient.Close()
 
+	notificationClient, err := clients.NewNotificationClient(cfg.NotificationGRPCAddr)
+	if err != nil {
+		log.Fatalf("Failed to initialize notification client: %v", err)
+	}
+	defer notificationClient.Close()
+
 	log.Println("✓ All clients initialized")
 
 	// Инициализация оркестратора
@@ -51,6 +57,7 @@ func main() {
 		transcriptionClient,
 		routingClient,
 		ticketClient,
+		notificationClient,
 	)
 
 	log.Println("✓ Orchestrator service initialized")

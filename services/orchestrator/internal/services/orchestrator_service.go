@@ -10,20 +10,23 @@ import (
 )
 
 type OrchestratorService struct {
-	transcriptionClient *clients.TranscriptionClient
-	routingClient       *clients.RoutingClient
-	ticketClient        *clients.TicketClient
+	transcriptionClient  *clients.TranscriptionClient
+	routingClient        *clients.RoutingClient
+	ticketClient         *clients.TicketClient
+	notificationClient   *clients.NotificationClient
 }
 
 func NewOrchestratorService(
 	transcriptionClient *clients.TranscriptionClient,
 	routingClient *clients.RoutingClient,
 	ticketClient *clients.TicketClient,
+	notificationClient *clients.NotificationClient,
 ) *OrchestratorService {
 	return &OrchestratorService{
-		transcriptionClient: transcriptionClient,
-		routingClient:       routingClient,
-		ticketClient:        ticketClient,
+		transcriptionClient:  transcriptionClient,
+		routingClient:        routingClient,
+		ticketClient:         ticketClient,
+		notificationClient:   notificationClient,
 	}
 }
 
@@ -33,6 +36,7 @@ type ProcessCallResult struct {
 	Routing        *clients.RoutingResponse       `json:"routing"`
 	Entities       *clients.Entities              `json:"entities"`
 	Ticket         *clients.TicketCreated         `json:"ticket"`
+	Notification   *clients.NotificationResult    `json:"notification,omitempty"`
 	ProcessingTime map[string]float64             `json:"processing_time"`
 	TotalTime      float64                        `json:"total_time"`
 }
@@ -45,7 +49,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 	log.Printf("Starting call processing for audio: %s", audioPath)
 
 	// 1. Транскрибация
-	log.Println("Step 1/3: Transcribing audio...")
+	log.Println("Step 1/4: Transcribing audio...")
 	stepStart := time.Now()
 	transcript, err := s.transcriptionClient.Transcribe(audioPath)
 	if err != nil {
@@ -56,7 +60,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 		processingTime["transcription"], len(transcript.Segments))
 
 	// 2. Маршрутизация
-	log.Println("Step 2/3: Routing call...")
+	log.Println("Step 2/4: Routing call...")
 	stepStart = time.Now()
 	routing, err := s.routingClient.Route(transcript.CallID, transcript.Segments)
 	if err != nil {
@@ -69,7 +73,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 	entities := &clients.Entities{}
 
 	// 3. Создание тикета
-	log.Println("Step 3/3: Creating ticket...")
+	log.Println("Step 3/4: Creating ticket...")
 	stepStart = time.Now()
 	ticket, err := s.ticketClient.CreateTicket(transcript, routing, entities)
 	if err != nil {
@@ -78,6 +82,19 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 	processingTime["ticket_creation"] = time.Since(stepStart).Seconds()
 	log.Printf("✓ Ticket created in %.2fs (ID: %s, URL: %s)",
 		processingTime["ticket_creation"], ticket.TicketID, ticket.URL)
+
+	// 4. Отправка уведомлений (non-fatal)
+	log.Println("Step 4/4: Sending notifications...")
+	stepStart = time.Now()
+	var notification *clients.NotificationResult
+	notification, err = s.notificationClient.SendNotification(transcript, routing, entities, ticket)
+	if err != nil {
+		log.Printf("⚠ Notification sending failed (non-fatal): %v", err)
+		notification = &clients.NotificationResult{Success: false}
+	}
+	processingTime["notification"] = time.Since(stepStart).Seconds()
+	log.Printf("✓ Notifications sent in %.2fs (success: %v)",
+		processingTime["notification"], notification.Success)
 
 	totalTime := time.Since(startTime).Seconds()
 	log.Printf("Call processing completed successfully in %.2fs", totalTime)
@@ -88,6 +105,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 		Routing:        routing,
 		Entities:       entities,
 		Ticket:         ticket,
+		Notification:   notification,
 		ProcessingTime: processingTime,
 		TotalTime:      totalTime,
 	}, nil

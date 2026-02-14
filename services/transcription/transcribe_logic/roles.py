@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 import re
 
-from transcribe.config import CFG
+from transcribe_logic.config import CFG
 
 
 def _norm_text(s: str) -> str:

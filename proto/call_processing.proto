@@ -98,6 +98,28 @@ message ProcessCallRequest {
   string call_id = 3;
 }
 
+// --- Notification ---
+
+message NotificationChannel {
+  string type = 1;
+  bool   success = 2;
+  string error = 3;
+  string destination = 4;
+}
+
+message SendNotificationRequest {
+  string call_id = 1;
+  Transcript transcript = 2;
+  Routing routing = 3;
+  Entities entities = 4;
+  TicketCreated ticket = 5;
+}
+
+message SendNotificationResponse {
+  bool success = 1;
+  repeated NotificationChannel results = 2;
+}
+
 message ProcessCallResponse {
   string call_id = 1;
   Transcript transcript = 2;
@@ -106,6 +128,7 @@ message ProcessCallResponse {
   TicketCreated ticket = 5;
   map<string, double> processing_time = 6;
   double total_time = 7;
+  SendNotificationResponse notification = 8;
 }
 
 service TranscriptionService {
@@ -126,4 +149,8 @@ service TicketService {
 
 service OrchestratorService {
   rpc ProcessCall(ProcessCallRequest) returns (ProcessCallResponse);
+}
+
+service NotificationService {
+  rpc SendNotification(SendNotificationRequest) returns (SendNotificationResponse);
 }

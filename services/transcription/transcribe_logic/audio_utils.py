@@ -1,11 +1,31 @@
 from __future__ import annotations
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import List, Tuple
 
 from .config import CFG
+
+
+def _resolve_bin(env_var: str, default_name: str) -> str:
+    candidate = os.getenv(env_var, "").strip() or default_name
+    if os.path.isabs(candidate) and os.path.exists(candidate):
+        return candidate
+
+    resolved = shutil.which(candidate)
+    if resolved:
+        return resolved
+
+    raise RuntimeError(
+        f"{default_name} binary not found. "
+        f"Install it and/or set {env_var} (example: /opt/homebrew/bin/{default_name})."
+    )
+
+
+FFMPEG_BIN = _resolve_bin("FFMPEG_BIN", "ffmpeg")
+FFPROBE_BIN = _resolve_bin("FFPROBE_BIN", "ffprobe")
 
 
 def _run(cmd: List[str]) -> None:
@@ -16,7 +36,7 @@ def _run(cmd: List[str]) -> None:
 
 def probe_channels(audio_path: str) -> int:
     cmd = [
-        "ffprobe", "-v", "error",
+        FFPROBE_BIN, "-v", "error",
         "-select_streams", "a:0",
         "-show_entries", "stream=channels",
         "-of", "default=noprint_wrappers=1:nokey=1",
@@ -34,7 +54,7 @@ def probe_channels(audio_path: str) -> int:
 def to_wav_16k_mono_preprocessed(src: str, dst: str) -> None:
     af = f"highpass=f={CFG.audio.highpass_hz},lowpass=f={CFG.audio.lowpass_hz}"
     _run([
-        "ffmpeg", "-y", "-i", src,
+        FFMPEG_BIN, "-y", "-i", src,
         "-ac", str(CFG.audio.mono_channels),
         "-ar", str(CFG.audio.sample_rate),
         "-af", af,
@@ -46,7 +66,7 @@ def to_wav_16k_mono_preprocessed(src: str, dst: str) -> None:
 def extract_channel_to_wav_16k(src: str, dst: str, channel_index: int) -> None:
     pan = f"pan=mono|c0=c{channel_index}"
     _run([
-        "ffmpeg", "-y", "-i", src,
+        FFMPEG_BIN, "-y", "-i", src,
         "-af", pan,
         "-ac", str(CFG.audio.mono_channels),
         "-ar", str(CFG.audio.sample_rate),
@@ -60,7 +80,7 @@ def cut_wav_segment(src_wav: str, dst_wav: str, start: float, end: float, pad: f
     s = max(0.0, start - pad)
     e = end + pad
     _run([
-        "ffmpeg", "-y", "-i", src_wav,
+        FFMPEG_BIN, "-y", "-i", src_wav,
         "-ss", f"{s}", "-to", f"{e}",
         "-c:a", CFG.audio.cut_codec,
         dst_wav
@@ -81,14 +101,14 @@ def detect_silences(
         seg = os.path.join(td, "seg.wav")
         # без pad: нам нужна честная тишина в окне
         _run([
-            "ffmpeg", "-y", "-i", wav_path,
+            FFMPEG_BIN, "-y", "-i", wav_path,
             "-ss", f"{start}", "-to", f"{end}",
             "-c:a", CFG.audio.cut_codec,
             seg
         ])
 
         cmd = [
-            "ffmpeg", "-i", seg,
+            FFMPEG_BIN, "-i", seg,
             "-af", f"silencedetect=noise={silence_db}dB:d={silence_min_dur}",
             "-f", "null", "-"
         ]
@@ -121,7 +141,7 @@ def is_fake_stereo(audio_path: str) -> bool:
         extract_channel_to_wav_16k(audio_path, right, 1)
 
         def rms_db(wav_path: str) -> float:
-            cmd = ["ffmpeg", "-i", wav_path, "-af", "astats=metadata=1:reset=1", "-f", "null", "-"]
+            cmd = [FFMPEG_BIN, "-i", wav_path, "-af", "astats=metadata=1:reset=1", "-f", "null", "-"]
             p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if p.returncode != 0:
                 raise RuntimeError(p.stderr)

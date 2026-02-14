@@ -4,8 +4,20 @@ load_dotenv()
 
 import json
 import argparse
+import os
 from transcribe_logic.pipeline import transcribe_with_roles
-from transcribe_logic.roles import infer_role_map_from_segments
+
+
+def _default_whisper_venv_python(repo_dir: str) -> str:
+    candidates = [
+        os.path.join(repo_dir, ".venv", "bin", "python"),
+        os.path.join(repo_dir, "whisper_venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -14,12 +26,17 @@ def main():
     ap.add_argument("--no-stem", action="store_true", help="Disable source separation in whisper-diarization")
     ap.add_argument(
         "--whisper-repo-dir",
-        default="/home/dmitrii/whisper-diarization",
+        default=os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
         help="Path to whisper-diarization repo",
     )
     ap.add_argument(
         "--whisper-venv-python",
-        default="/home/dmitrii/whisper-diarization/whisper_venv/bin/python",
+        default=os.getenv(
+            "WHISPER_VENV_PYTHON",
+            _default_whisper_venv_python(
+                os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization"))
+            ),
+        ),
         help="Path to python inside whisper-diarization venv",
     )
     args = ap.parse_args()

@@ -163,6 +163,12 @@ main() {
     "DATABASE_URL='$DATABASE_URL' GOCACHE='$ROOT_DIR/.gocache' go run cmd/server/main.go"
 
   start_service \
+    "notification_sender" \
+    "$ROOT_DIR/services/notification_sender" \
+    "$ROOT_DIR/configs/notification.env" \
+    "GOCACHE='$ROOT_DIR/.gocache' go run cmd/server/main.go"
+
+  start_service \
     "orchestrator" \
     "$ROOT_DIR/services/orchestrator" \
     "$ROOT_DIR/configs/orchestrator.env" \

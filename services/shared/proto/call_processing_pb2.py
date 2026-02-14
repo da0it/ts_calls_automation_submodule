@@ -6,8 +6,17 @@
 """Generated protocol buffer code."""
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
+from google.protobuf import runtime_version as _runtime_version
 from google.protobuf import symbol_database as _symbol_database
 from google.protobuf.internal import builder as _builder
+_runtime_version.ValidateProtobufRuntimeVersion(
+    _runtime_version.Domain.PUBLIC,
+    6,
+    31,
+    1,
+    '',
+    'call_processing.proto'
+)
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()
@@ -17,7 +26,7 @@ from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x63\x61ll_processing.proto\x12\x11\x63\x61llprocessing.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"R\n\x07Segment\x12\r\n\x05start\x18\x01 \x01(\x01\x12\x0b\n\x03\x65nd\x18\x02 \x01(\x01\x12\x0f\n\x07speaker\x18\x03 \x01(\t\x12\x0c\n\x04role\x18\x04 \x01(\t\x12\x0c\n\x04text\x18\x05 \x01(\t\"\xf0\x01\n\nTranscript\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12,\n\x08segments\x18\x02 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\x12\x44\n\x0crole_mapping\x18\x03 \x03(\x0b\x32..callprocessing.v1.Transcript.RoleMappingEntry\x12)\n\x08metadata\x18\x04 \x01(\x0b\x32\x17.google.protobuf.Struct\x1a\x32\n\x10RoleMappingEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"b\n\x07Routing\x12\x11\n\tintent_id\x18\x01 \x01(\t\x12\x19\n\x11intent_confidence\x18\x02 \x01(\x01\x12\x10\n\x08priority\x18\x03 \x01(\t\x12\x17\n\x0fsuggested_group\x18\x04 \x01(\t\"S\n\x0f\x45xtractedEntity\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x12\n\nconfidence\x18\x03 \x01(\x01\x12\x0f\n\x07\x63ontext\x18\x04 \x01(\t\"\x85\x03\n\x08\x45ntities\x12\x33\n\x07persons\x18\x01 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x32\n\x06phones\x18\x02 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x32\n\x06\x65mails\x18\x03 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x35\n\torder_ids\x18\x04 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x37\n\x0b\x61\x63\x63ount_ids\x18\x05 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x39\n\rmoney_amounts\x18\x06 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x31\n\x05\x64\x61tes\x18\x07 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\"\x84\x01\n\rTicketCreated\x12\x11\n\tticket_id\x18\x01 \x01(\t\x12\x13\n\x0b\x65xternal_id\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0e\n\x06system\x18\x04 \x01(\t\x12.\n\ncreated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"E\n\x11TranscribeRequest\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61ll_id\x18\x03 \x01(\t\"G\n\x12TranscribeResponse\x12\x31\n\ntranscript\x18\x01 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\"M\n\x0cRouteRequest\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12,\n\x08segments\x18\x02 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\"<\n\rRouteResponse\x12+\n\x07routing\x18\x01 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\"F\n\x16\x45xtractEntitiesRequest\x12,\n\x08segments\x18\x01 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\"H\n\x17\x45xtractEntitiesResponse\x12-\n\x08\x65ntities\x18\x01 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\"\xb7\x01\n\x13\x43reateTicketRequest\x12\x31\n\ntranscript\x18\x01 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\x12+\n\x07routing\x18\x02 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\x12-\n\x08\x65ntities\x18\x03 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\x12\x11\n\taudio_url\x18\x04 \x01(\t\"H\n\x14\x43reateTicketResponse\x12\x30\n\x06ticket\x18\x01 \x01(\x0b\x32 .callprocessing.v1.TicketCreated\"F\n\x12ProcessCallRequest\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61ll_id\x18\x03 \x01(\t\"\x87\x03\n\x13ProcessCallResponse\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12\x31\n\ntranscript\x18\x02 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\x12+\n\x07routing\x18\x03 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\x12-\n\x08\x65ntities\x18\x04 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\x12\x30\n\x06ticket\x18\x05 \x01(\x0b\x32 .callprocessing.v1.TicketCreated\x12S\n\x0fprocessing_time\x18\x06 \x03(\x0b\x32:.callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry\x12\x12\n\ntotal_time\x18\x07 \x01(\x01\x1a\x35\n\x13ProcessingTimeEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x32q\n\x14TranscriptionService\x12Y\n\nTranscribe\x12$.callprocessing.v1.TranscribeRequest\x1a%.callprocessing.v1.TranscribeResponse2\\\n\x0eRoutingService\x12J\n\x05Route\x12\x1f.callprocessing.v1.RouteRequest\x1a .callprocessing.v1.RouteResponse2\x83\x01\n\x17\x45ntityExtractionService\x12h\n\x0f\x45xtractEntities\x12).callprocessing.v1.ExtractEntitiesRequest\x1a*.callprocessing.v1.ExtractEntitiesResponse2p\n\rTicketService\x12_\n\x0c\x43reateTicket\x12&.callprocessing.v1.CreateTicketRequest\x1a\'.callprocessing.v1.CreateTicketResponse2s\n\x13OrchestratorService\x12\\\n\x0bProcessCall\x12%.callprocessing.v1.ProcessCallRequest\x1a&.callprocessing.v1.ProcessCallResponseB$Z\"callprocessing/v1;callprocessingv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x63\x61ll_processing.proto\x12\x11\x63\x61llprocessing.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"R\n\x07Segment\x12\r\n\x05start\x18\x01 \x01(\x01\x12\x0b\n\x03\x65nd\x18\x02 \x01(\x01\x12\x0f\n\x07speaker\x18\x03 \x01(\t\x12\x0c\n\x04role\x18\x04 \x01(\t\x12\x0c\n\x04text\x18\x05 \x01(\t\"\xf0\x01\n\nTranscript\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12,\n\x08segments\x18\x02 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\x12\x44\n\x0crole_mapping\x18\x03 \x03(\x0b\x32..callprocessing.v1.Transcript.RoleMappingEntry\x12)\n\x08metadata\x18\x04 \x01(\x0b\x32\x17.google.protobuf.Struct\x1a\x32\n\x10RoleMappingEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"b\n\x07Routing\x12\x11\n\tintent_id\x18\x01 \x01(\t\x12\x19\n\x11intent_confidence\x18\x02 \x01(\x01\x12\x10\n\x08priority\x18\x03 \x01(\t\x12\x17\n\x0fsuggested_group\x18\x04 \x01(\t\"S\n\x0f\x45xtractedEntity\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x12\n\nconfidence\x18\x03 \x01(\x01\x12\x0f\n\x07\x63ontext\x18\x04 \x01(\t\"\x85\x03\n\x08\x45ntities\x12\x33\n\x07persons\x18\x01 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x32\n\x06phones\x18\x02 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x32\n\x06\x65mails\x18\x03 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x35\n\torder_ids\x18\x04 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x37\n\x0b\x61\x63\x63ount_ids\x18\x05 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x39\n\rmoney_amounts\x18\x06 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\x12\x31\n\x05\x64\x61tes\x18\x07 \x03(\x0b\x32\".callprocessing.v1.ExtractedEntity\"\x84\x01\n\rTicketCreated\x12\x11\n\tticket_id\x18\x01 \x01(\t\x12\x13\n\x0b\x65xternal_id\x18\x02 \x01(\t\x12\x0b\n\x03url\x18\x03 \x01(\t\x12\x0e\n\x06system\x18\x04 \x01(\t\x12.\n\ncreated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"E\n\x11TranscribeRequest\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61ll_id\x18\x03 \x01(\t\"G\n\x12TranscribeResponse\x12\x31\n\ntranscript\x18\x01 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\"M\n\x0cRouteRequest\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12,\n\x08segments\x18\x02 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\"<\n\rRouteResponse\x12+\n\x07routing\x18\x01 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\"F\n\x16\x45xtractEntitiesRequest\x12,\n\x08segments\x18\x01 \x03(\x0b\x32\x1a.callprocessing.v1.Segment\"H\n\x17\x45xtractEntitiesResponse\x12-\n\x08\x65ntities\x18\x01 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\"\xb7\x01\n\x13\x43reateTicketRequest\x12\x31\n\ntranscript\x18\x01 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\x12+\n\x07routing\x18\x02 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\x12-\n\x08\x65ntities\x18\x03 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\x12\x11\n\taudio_url\x18\x04 \x01(\t\"H\n\x14\x43reateTicketResponse\x12\x30\n\x06ticket\x18\x01 \x01(\x0b\x32 .callprocessing.v1.TicketCreated\"F\n\x12ProcessCallRequest\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x10\n\x08\x66ilename\x18\x02 \x01(\t\x12\x0f\n\x07\x63\x61ll_id\x18\x03 \x01(\t\"X\n\x13NotificationChannel\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\r\n\x05\x65rror\x18\x03 \x01(\t\x12\x13\n\x0b\x64\x65stination\x18\x04 \x01(\t\"\xeb\x01\n\x17SendNotificationRequest\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12\x31\n\ntranscript\x18\x02 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\x12+\n\x07routing\x18\x03 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\x12-\n\x08\x65ntities\x18\x04 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\x12\x30\n\x06ticket\x18\x05 \x01(\x0b\x32 .callprocessing.v1.TicketCreated\"d\n\x18SendNotificationResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x37\n\x07results\x18\x02 \x03(\x0b\x32&.callprocessing.v1.NotificationChannel\"\xca\x03\n\x13ProcessCallResponse\x12\x0f\n\x07\x63\x61ll_id\x18\x01 \x01(\t\x12\x31\n\ntranscript\x18\x02 \x01(\x0b\x32\x1d.callprocessing.v1.Transcript\x12+\n\x07routing\x18\x03 \x01(\x0b\x32\x1a.callprocessing.v1.Routing\x12-\n\x08\x65ntities\x18\x04 \x01(\x0b\x32\x1b.callprocessing.v1.Entities\x12\x30\n\x06ticket\x18\x05 \x01(\x0b\x32 .callprocessing.v1.TicketCreated\x12S\n\x0fprocessing_time\x18\x06 \x03(\x0b\x32:.callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry\x12\x12\n\ntotal_time\x18\x07 \x01(\x01\x12\x41\n\x0cnotification\x18\x08 \x01(\x0b\x32+.callprocessing.v1.SendNotificationResponse\x1a\x35\n\x13ProcessingTimeEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x32q\n\x14TranscriptionService\x12Y\n\nTranscribe\x12$.callprocessing.v1.TranscribeRequest\x1a%.callprocessing.v1.TranscribeResponse2\\\n\x0eRoutingService\x12J\n\x05Route\x12\x1f.callprocessing.v1.RouteRequest\x1a .callprocessing.v1.RouteResponse2\x83\x01\n\x17\x45ntityExtractionService\x12h\n\x0f\x45xtractEntities\x12).callprocessing.v1.ExtractEntitiesRequest\x1a*.callprocessing.v1.ExtractEntitiesResponse2p\n\rTicketService\x12_\n\x0c\x43reateTicket\x12&.callprocessing.v1.CreateTicketRequest\x1a\'.callprocessing.v1.CreateTicketResponse2s\n\x13OrchestratorService\x12\\\n\x0bProcessCall\x12%.callprocessing.v1.ProcessCallRequest\x1a&.callprocessing.v1.ProcessCallResponse2\x82\x01\n\x13NotificationService\x12k\n\x10SendNotification\x12*.callprocessing.v1.SendNotificationRequest\x1a+.callprocessing.v1.SendNotificationResponseB$Z\"callprocessing/v1;callprocessingv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -61,18 +70,26 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CREATETICKETRESPONSE']._serialized_end=1835
   _globals['_PROCESSCALLREQUEST']._serialized_start=1837
   _globals['_PROCESSCALLREQUEST']._serialized_end=1907
-  _globals['_PROCESSCALLRESPONSE']._serialized_start=1910
-  _globals['_PROCESSCALLRESPONSE']._serialized_end=2301
-  _globals['_PROCESSCALLRESPONSE_PROCESSINGTIMEENTRY']._serialized_start=2248
-  _globals['_PROCESSCALLRESPONSE_PROCESSINGTIMEENTRY']._serialized_end=2301
-  _globals['_TRANSCRIPTIONSERVICE']._serialized_start=2303
-  _globals['_TRANSCRIPTIONSERVICE']._serialized_end=2416
-  _globals['_ROUTINGSERVICE']._serialized_start=2418
-  _globals['_ROUTINGSERVICE']._serialized_end=2510
-  _globals['_ENTITYEXTRACTIONSERVICE']._serialized_start=2513
-  _globals['_ENTITYEXTRACTIONSERVICE']._serialized_end=2644
-  _globals['_TICKETSERVICE']._serialized_start=2646
-  _globals['_TICKETSERVICE']._serialized_end=2758
-  _globals['_ORCHESTRATORSERVICE']._serialized_start=2760
-  _globals['_ORCHESTRATORSERVICE']._serialized_end=2875
+  _globals['_NOTIFICATIONCHANNEL']._serialized_start=1909
+  _globals['_NOTIFICATIONCHANNEL']._serialized_end=1997
+  _globals['_SENDNOTIFICATIONREQUEST']._serialized_start=2000
+  _globals['_SENDNOTIFICATIONREQUEST']._serialized_end=2235
+  _globals['_SENDNOTIFICATIONRESPONSE']._serialized_start=2237
+  _globals['_SENDNOTIFICATIONRESPONSE']._serialized_end=2337
+  _globals['_PROCESSCALLRESPONSE']._serialized_start=2340
+  _globals['_PROCESSCALLRESPONSE']._serialized_end=2798
+  _globals['_PROCESSCALLRESPONSE_PROCESSINGTIMEENTRY']._serialized_start=2745
+  _globals['_PROCESSCALLRESPONSE_PROCESSINGTIMEENTRY']._serialized_end=2798
+  _globals['_TRANSCRIPTIONSERVICE']._serialized_start=2800
+  _globals['_TRANSCRIPTIONSERVICE']._serialized_end=2913
+  _globals['_ROUTINGSERVICE']._serialized_start=2915
+  _globals['_ROUTINGSERVICE']._serialized_end=3007
+  _globals['_ENTITYEXTRACTIONSERVICE']._serialized_start=3010
+  _globals['_ENTITYEXTRACTIONSERVICE']._serialized_end=3141
+  _globals['_TICKETSERVICE']._serialized_start=3143
+  _globals['_TICKETSERVICE']._serialized_end=3255
+  _globals['_ORCHESTRATORSERVICE']._serialized_start=3257
+  _globals['_ORCHESTRATORSERVICE']._serialized_end=3372
+  _globals['_NOTIFICATIONSERVICE']._serialized_start=3375
+  _globals['_NOTIFICATIONSERVICE']._serialized_end=3505
 # @@protoc_insertion_point(module_scope)

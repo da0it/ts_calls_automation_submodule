@@ -68,7 +68,7 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	}
 
 	// 2. Сохраняем файл
-	filename := fmt.Sprintf("%d_%s", c.Request.Context().Value("request_id"), file.Filename)
+	filename := fmt.Sprintf("%v_%s", c.Request.Context().Value("request_id"), file.Filename)
 	audioPath := filepath.Join(h.uploadDir, filename)
 
 	if err := c.SaveUploadedFile(file, audioPath); err != nil {

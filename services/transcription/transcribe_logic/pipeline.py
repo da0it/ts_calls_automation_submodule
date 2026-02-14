@@ -8,6 +8,17 @@ from transcribe_logic.audio_utils import to_wav_16k_mono_preprocessed
 from transcribe_logic.diarization_ext import whisper_diarize_via_cli
 from transcribe_logic.roles import infer_role_map_from_segments
 
+def _default_whisper_venv_python(repo_dir: str) -> str:
+    candidates = [
+        os.path.join(repo_dir, ".venv", "bin", "python"),
+        os.path.join(repo_dir, "whisper_venv", "bin", "python"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return candidates[0]
+
+
 def _round_segments(segments: List[Dict[str, Any]], ndigits: int = 2) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for s in segments:
@@ -69,8 +80,8 @@ def transcribe_with_roles(
     *,
     hf_token: Optional[str] = None,  # не используется здесь, оставлено для совместимости интерфейса
     no_stem: bool = False,
-    whisper_repo_dir: str = "/home/dmitrii/whisper-diarization",
-    whisper_venv_python: str = "/home/dmitrii/whisper-diarization/.venv/bin/python",
+    whisper_repo_dir: str = os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
+    whisper_venv_python: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Новый пайплайн (без pyannote и без GigaAM):
@@ -82,6 +93,11 @@ def transcribe_with_roles(
     if hf_token:
         # тут не нужно, но пусть не ломает старый вызов
         os.environ["HF_TOKEN"] = hf_token
+    if whisper_venv_python is None:
+        whisper_venv_python = os.getenv(
+            "WHISPER_VENV_PYTHON",
+            _default_whisper_venv_python(whisper_repo_dir),
+        )
 
     with tempfile.TemporaryDirectory() as td:
         wav = os.path.join(td, "audio_mono.wav")
@@ -95,8 +111,8 @@ def transcribe_with_roles(
             repo_dir=whisper_repo_dir,
             venv_python=whisper_venv_python,
             no_stem=no_stem,
-            language="ru",
-            whisper_model="medium"
+            language=os.getenv("WHISPER_LANGUAGE", "ru"),
+            whisper_model=os.getenv("WHISPER_MODEL", "small")
         )
 
         if not segments:
