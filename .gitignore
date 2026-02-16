@@ -27,6 +27,7 @@ build/
 # Runtime / Logs
 # ==========================
 .run/
+services/orchestrator/uploads/
 
 # ==========================
 # Environment & Secrets

@@ -12,13 +12,22 @@ declare -a SERVICE_NAMES=()
 declare -a SERVICE_PIDS=()
 CLEANED_UP=0
 
-if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+if [[ -x "$HOME/whisper-diarization/whisper_venv/bin/python" ]]; then
+  DEFAULT_TRANSCRIPTION_PYTHON="$HOME/whisper-diarization/whisper_venv/bin/python"
+elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
   DEFAULT_TRANSCRIPTION_PYTHON="$ROOT_DIR/.venv/bin/python"
 else
   DEFAULT_TRANSCRIPTION_PYTHON="python3"
 fi
 
+if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+  DEFAULT_ENTITY_PYTHON="$ROOT_DIR/.venv/bin/python"
+else
+  DEFAULT_ENTITY_PYTHON="python3"
+fi
+
 TRANSCRIPTION_PYTHON="${TRANSCRIPTION_PYTHON:-$DEFAULT_TRANSCRIPTION_PYTHON}"
+ENTITY_PYTHON="${ENTITY_PYTHON:-$DEFAULT_ENTITY_PYTHON}"
 ROUTER_PYTHON="${ROUTER_PYTHON:-$ROOT_DIR/services/router/venv/bin/python}"
 DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/tickets?sslmode=disable}"
 SKIP_DB_MIGRATION="${SKIP_DB_MIGRATION:-0}"
@@ -33,6 +42,34 @@ require_cmd() {
 
 log() {
   echo "[$(date '+%H:%M:%S')] $*"
+}
+
+wait_for_entity_ready() {
+  local timeout_sec="${1:-120}"
+  local url="${2:-http://localhost:5001/health}"
+  local start_ts
+  start_ts="$(date +%s)"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log "curl not found; skipping entity readiness probe."
+    return
+  fi
+
+  while true; do
+    if curl -sf "$url" | grep -q '"ready":[[:space:]]*true'; then
+      log "Entity extraction is ready."
+      return
+    fi
+
+    local now
+    now="$(date +%s)"
+    if (( now - start_ts >= timeout_sec )); then
+      log "[WARN] Entity extraction readiness timeout after ${timeout_sec}s; continuing anyway."
+      return
+    fi
+
+    sleep 2
+  done
 }
 
 register_service() {
@@ -140,6 +177,7 @@ check_python() {
 main() {
   require_cmd go
   check_python "$TRANSCRIPTION_PYTHON" "transcription"
+  check_python "$ENTITY_PYTHON" "entity_extraction"
   check_python "$ROUTER_PYTHON" "router"
 
   run_migration
@@ -155,6 +193,13 @@ main() {
     "$ROOT_DIR" \
     "$ROOT_DIR/configs/routing.env" \
     "$ROUTER_PYTHON $ROOT_DIR/services/router/grpc_server.py"
+
+  start_service \
+    "entity_extraction" \
+    "$ROOT_DIR/services/entity_extraction" \
+    "$ROOT_DIR/configs/entity.env" \
+    "$ENTITY_PYTHON $ROOT_DIR/services/entity_extraction/main.py"
+  wait_for_entity_ready 120 "http://localhost:5001/health"
 
   start_service \
     "ticket_creation" \

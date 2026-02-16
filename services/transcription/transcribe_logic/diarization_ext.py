@@ -82,6 +82,9 @@ def _parse_srt(srt_text: str) -> List[Dict[str, Any]]:
         mspk = re.search(r"\b(SPEAKER[_ -]?\d+|Speaker\s*\d+)\b", text, flags=re.I)
         if mspk:
             spk = mspk.group(1).replace(" ", "_").upper()
+        # Удаляем префиксы "Speaker N:" из текста, чтобы не мешали role-эвристике.
+        text = re.sub(r"\bSpeaker\s*\d+\s*:\s*", "", text, flags=re.I).strip()
+        text = re.sub(r"\bSPEAKER[_ -]?\d+\s*:\s*", "", text, flags=re.I).strip()
 
         out.append({"start": start, "end": end, "speaker": spk, "text": text})
 
@@ -95,7 +98,10 @@ def whisper_diarize_via_cli(
     venv_python: Optional[str] = None,
     no_stem: bool = False,
     language: str = "ru",
-    whisper_model: str = "medium"
+    whisper_model: str = "medium",
+    batch_size: int = 8,
+    device: Optional[str] = None,
+    suppress_numerals: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Запускает <repo_dir>/diarize.py -a <audio_path>
@@ -115,7 +121,11 @@ def whisper_diarize_via_cli(
     if no_stem:
         cmd.append("--no-stem")
 
-    cmd += ["--language", language]
+    cmd += ["--language", language, "--batch-size", str(batch_size)]
+    if device:
+        cmd += ["--device", device]
+    if suppress_numerals:
+        cmd.append("--suppress_numerals")
 
     _run(cmd)
 

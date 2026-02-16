@@ -50,6 +50,8 @@ func main() {
 	}
 	defer notificationClient.Close()
 
+	entityClient := clients.NewEntityClient(cfg.EntityServiceURL)
+
 	log.Println("✓ All clients initialized")
 
 	// Инициализация оркестратора
@@ -58,6 +60,7 @@ func main() {
 		routingClient,
 		ticketClient,
 		notificationClient,
+		entityClient,
 	)
 
 	log.Println("✓ Orchestrator service initialized")

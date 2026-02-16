@@ -45,6 +45,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _default_whisper_venv_python() -> str:
     home = os.path.expanduser("~/whisper-diarization")
     candidates = [
@@ -113,7 +120,7 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
             # Вызываем функцию транскрибации
             result = transcribe_with_roles(
                 audio_path=temp_file,
-                no_stem=False,  # или можно передавать из запроса
+                no_stem=_env_bool("WHISPER_NO_STEM", True),
                 whisper_repo_dir=self.whisper_repo_dir,
                 whisper_venv_python=self.whisper_venv_python
             )

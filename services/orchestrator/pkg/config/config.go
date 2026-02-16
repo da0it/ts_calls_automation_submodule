@@ -13,10 +13,11 @@ type Config struct {
 	GRPCPort string
 
 	// gRPC адреса сервисов
-	TranscriptionGRPCAddr  string
-	RoutingGRPCAddr        string
-	TicketGRPCAddr         string
-	NotificationGRPCAddr   string
+	TranscriptionGRPCAddr string
+	RoutingGRPCAddr       string
+	TicketGRPCAddr        string
+	NotificationGRPCAddr  string
+	EntityServiceURL      string
 }
 
 func Load() *Config {
@@ -27,8 +28,9 @@ func Load() *Config {
 		GRPCPort:              getEnv("GRPC_PORT", "9000"),
 		TranscriptionGRPCAddr: getEnv("TRANSCRIPTION_GRPC_ADDR", "localhost:50051"),
 		RoutingGRPCAddr:       getEnv("ROUTING_GRPC_ADDR", "localhost:50052"),
-		TicketGRPCAddr:         getEnv("TICKET_GRPC_ADDR", "localhost:50054"),
-		NotificationGRPCAddr:   getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50055"),
+		TicketGRPCAddr:        getEnv("TICKET_GRPC_ADDR", "localhost:50054"),
+		NotificationGRPCAddr:  getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50055"),
+		EntityServiceURL:      getEnv("ENTITY_SERVICE_URL", "http://localhost:5001"),
 	}
 
 	log.Printf("Orchestrator config loaded:")
@@ -38,6 +40,7 @@ func Load() *Config {
 	log.Printf("  - Routing gRPC: %s", cfg.RoutingGRPCAddr)
 	log.Printf("  - Ticket gRPC: %s", cfg.TicketGRPCAddr)
 	log.Printf("  - Notification gRPC: %s", cfg.NotificationGRPCAddr)
+	log.Printf("  - Entity service URL: %s", cfg.EntityServiceURL)
 
 	return cfg
 }

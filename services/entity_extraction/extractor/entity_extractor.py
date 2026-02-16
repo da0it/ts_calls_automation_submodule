@@ -41,11 +41,13 @@ class EntityExtractor:
         Returns:
             Entities с извлеченными данными
         """
-        # Собираем весь текст от клиента
+        # Собираем текст от клиента + полный текст диалога
         caller_text = []
+        all_text = []
         caller_contexts = []  # Для сохранения контекста каждого сегмента
         
         for seg in segments:
+            all_text.append(seg.text)
             if seg.role == "звонящий":
                 text = seg.text
                 caller_text.append(text)
@@ -56,35 +58,38 @@ class EntityExtractor:
                 })
         
         full_text = " ".join(caller_text)
+        full_text_all = " ".join(all_text)
+        # Если роли были определены плохо и caller пуст, не теряем сущности.
+        source_text = full_text if full_text.strip() else full_text_all
         
         entities = Entities()
         
         # 1. Извлекаем персоны и организации через DeepPavlov NER
         if self.ner_model:
-            ner_entities = self._extract_ner_entities(full_text, caller_contexts)
+            ner_entities = self._extract_ner_entities(source_text, caller_contexts)
             entities.persons = ner_entities.get("persons", [])
             # Можно добавить organizations если нужно
         else:
             # Fallback: простое извлечение имен через regex
-            entities.persons = self._extract_persons_regex(full_text)
+            entities.persons = self._extract_persons_regex(source_text)
         
         # 2. Извлекаем телефоны (regex)
-        entities.phones = self._extract_phones(full_text)
+        entities.phones = self._extract_phones(full_text_all)
         
         # 3. Извлекаем emails (regex)
-        entities.emails = self._extract_emails(full_text)
+        entities.emails = self._extract_emails(full_text_all)
         
         # 4. Извлекаем номера заказов (regex + эвристики)
-        entities.order_ids = self._extract_order_ids(full_text)
+        entities.order_ids = self._extract_order_ids(full_text_all)
         
         # 5. Извлекаем ID аккаунтов
-        entities.account_ids = self._extract_account_ids(full_text)
+        entities.account_ids = self._extract_account_ids(full_text_all)
         
         # 6. Извлекаем суммы денег
-        entities.money_amounts = self._extract_money(full_text)
+        entities.money_amounts = self._extract_money(full_text_all)
         
         # 7. Извлекаем даты
-        entities.dates = self._extract_dates(full_text)
+        entities.dates = self._extract_dates(full_text_all)
         
         logger.info(f"Extracted entities: {len(entities.persons)} persons, "
                    f"{len(entities.phones)} phones, {len(entities.emails)} emails, "
@@ -344,8 +349,10 @@ class EntityExtractor:
         Примеры: "заказ 12345", "номер заказа АБ-123456"
         """
         patterns = [
-            r'(?:заказ|order)[:\s№#]*([A-ZА-Я0-9\-]{4,15})',
-            r'(?:номер|number)[:\s№#]*([A-ZА-Я0-9\-]{4,15})',
+            # "номер заказа 123456", "заказ на установку 756.13.632"
+            r'(?:номер\s+заказа?|заказ(?:\s+на\s+\w+){0,3})[^A-ZА-Я0-9]{0,8}([A-ZА-Я]{0,3}\-?\d[\d\.\-\s]{2,20}\d)',
+            # english fallback
+            r'(?:order(?:\s+number)?)[:\s№#-]{0,8}([A-Z]{0,3}\-?\d[\d\.\-\s]{2,20}\d)',
         ]
         
         order_ids = []
@@ -353,7 +360,11 @@ class EntityExtractor:
         
         for pattern in patterns:
             for m in re.finditer(pattern, text, re.IGNORECASE):
-                order_id = m.group(1)
+                raw_order_id = m.group(1).strip().rstrip(".,;:!?")
+                # Нормализуем "756.13.632" -> "75613632", "AB-1234" -> "AB1234"
+                order_id = re.sub(r'[^A-ZА-Я0-9]', '', raw_order_id.upper())
+                if len(order_id) < 4 or not re.search(r'\d', order_id):
+                    continue
                 
                 if order_id in seen:
                     continue
