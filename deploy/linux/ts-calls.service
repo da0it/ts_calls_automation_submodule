@@ -1,0 +1,19 @@
+[Unit]
+Description=TS Calls Automation Stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/ts_calls_automation_submodule
+Environment=HOME=/home/ubuntu
+Environment=START_POSTGRES_WITH_DOCKER=1
+ExecStart=/opt/ts_calls_automation_submodule/scripts/start_linux_stack.sh
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

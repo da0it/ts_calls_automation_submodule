@@ -37,6 +37,11 @@ except ImportError as e:
     print(f"Files: {list(CURRENT_DIR.glob('*'))}")
     sys.exit(1)
 
+try:
+    from transcribe_logic.whisperx_runtime import warmup_whisperx_runtime
+except ImportError:
+    warmup_whisperx_runtime = None
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +85,36 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
         )
         logger.info(f"Whisper repo: {self.whisper_repo_dir}")
         logger.info(f"Whisper venv: {self.whisper_venv_python}")
+
+        self._maybe_warmup_whisperx()
+
+    def _maybe_warmup_whisperx(self) -> None:
+        backend = os.getenv("ASR_BACKEND", "faster").strip().lower()
+        preload = _env_bool("WHISPERX_PRELOAD", False)
+        persistent = _env_bool("WHISPERX_PERSISTENT", True)
+        if backend != "whisperx" or not preload or not persistent:
+            return
+        if warmup_whisperx_runtime is None:
+            logger.warning("WHISPERX_PRELOAD=1 but warmup_whisperx_runtime import failed.")
+            return
+
+        try:
+            logger.info("WhisperX preload enabled: warming up persistent runtime...")
+            warmup_whisperx_runtime(
+                model=os.getenv("WHISPERX_MODEL", "large-v3"),
+                language=os.getenv("WHISPERX_LANGUAGE", os.getenv("WHISPER_LANGUAGE", "ru")),
+                device=os.getenv("WHISPERX_DEVICE", "cpu"),
+                compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "int8"),
+                vad_method=os.getenv("WHISPERX_VAD_METHOD", "silero").strip().lower(),
+                diarize=_env_bool("WHISPERX_DIARIZE", True),
+                diarization_backend=os.getenv("WHISPERX_DIARIZATION_BACKEND", "pyannote").strip().lower(),
+                diarize_model=os.getenv("WHISPERX_DIARIZE_MODEL", "pyannote/speaker-diarization-3.1"),
+                nemo_repo_dir=os.getenv("WHISPER_REPO_DIR", self.whisper_repo_dir),
+                hf_token=os.getenv("HF_TOKEN"),
+            )
+            logger.info("WhisperX preload completed.")
+        except Exception as exc:
+            logger.warning("WhisperX preload failed, continuing without warmup: %s", exc)
     
     def _convert_to_proto_segments(self, segments: list) -> list:
         """Конвертирует сегменты в protobuf формат"""

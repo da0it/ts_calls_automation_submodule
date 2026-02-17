@@ -204,7 +204,15 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
     def _build_intent_matrix(self, allowed_intents: Dict[str, Dict]) -> Tuple[List[str], torch.Tensor]:
         ids = sorted(allowed_intents.keys())
-        key = tuple(ids)
+        key_parts: List[str] = []
+        for intent_id in ids:
+            meta = allowed_intents[intent_id]
+            examples = meta.get("examples") or [meta.get("title", intent_id)]
+            normalized_examples = "|".join(str(x).strip().lower() for x in examples[:10])
+            key_parts.append(
+                f"{intent_id}::{str(meta.get('title', '')).strip().lower()}::{normalized_examples}"
+            )
+        key = tuple(key_parts)
         if self._intent_cache_key == key and self._intent_mat is not None:
             return self._intent_ids, self._intent_mat
 

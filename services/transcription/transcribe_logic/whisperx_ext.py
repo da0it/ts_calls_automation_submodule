@@ -39,6 +39,7 @@ def whisperx_diarize_via_cli(
     device: str = "cpu",
     compute_type: str = "int8",
     batch_size: int = 4,
+    vad_method: str = "silero",
     diarize: bool = True,
     diarize_model: str = "pyannote/speaker-diarization-3.1",
     diarization_backend: str = "pyannote",
@@ -71,6 +72,8 @@ def whisperx_diarize_via_cli(
             compute_type,
             "--batch-size",
             str(batch_size),
+            "--vad-method",
+            vad_method,
         ]
         if diarize:
             cmd.append("--diarize")

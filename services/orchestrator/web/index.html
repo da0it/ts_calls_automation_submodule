@@ -1,0 +1,1271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Call Routing Console</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+    :root {
+      --bg-0: #f4f7fb;
+      --bg-1: #e8eef8;
+      --surface: #ffffff;
+      --surface-2: #f7f9fd;
+      --text: #14213d;
+      --muted: #60718d;
+      --line: #d7e0ef;
+      --accent: #1565d8;
+      --accent-2: #0b4eb2;
+      --ok: #0f8f5a;
+      --warn: #c0720a;
+      --bad: #b43333;
+      --shadow: 0 16px 30px rgba(24, 52, 91, 0.12);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'IBM Plex Sans', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1300px 700px at 80% -10%, #d7e8ff 0%, transparent 60%),
+        radial-gradient(1000px 600px at -5% 100%, #dce7f8 0%, transparent 60%),
+        linear-gradient(160deg, var(--bg-0), var(--bg-1));
+    }
+
+    .page {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+      padding: 20px;
+      gap: 16px;
+    }
+
+    .topbar {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .title {
+      margin: 0;
+      font: 700 24px/1.1 'Space Grotesk', sans-serif;
+      letter-spacing: 0.2px;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .upload-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+    }
+
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(130deg, var(--accent), var(--accent-2));
+      box-shadow: 0 10px 20px rgba(21, 101, 216, 0.25);
+    }
+
+    .btn-ghost {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    .btn-ok { background: #def6ea; color: var(--ok); border: 1px solid #b7e7cb; }
+    .btn-bad { background: #fde7e7; color: var(--bad); border: 1px solid #f3c4c4; }
+
+    .btn:hover:not(:disabled) { transform: translateY(-1px); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      border-bottom: 1px solid var(--line);
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(180deg, #ffffff, #f5f8fd);
+    }
+
+    .panel-title {
+      margin: 0;
+      font: 700 15px/1.2 'Space Grotesk', sans-serif;
+      letter-spacing: .2px;
+    }
+
+    .calls-list {
+      list-style: none;
+      margin: 0;
+      padding: 8px;
+      height: calc(100vh - 210px);
+      overflow: auto;
+    }
+
+    .call-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+      background: #fff;
+    }
+
+    .call-item:hover { border-color: #b4c9ee; background: #f7fbff; }
+    .call-item.active { border-color: var(--accent); background: #eef5ff; }
+
+    .call-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+
+    .call-name {
+      font-weight: 600;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .call-time {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .chips {
+      margin-top: 7px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: #f8fafd;
+    }
+
+    .chip-ok { color: var(--ok); border-color: #c5ead6; background: #ecf9f1; }
+    .chip-bad { color: var(--bad); border-color: #f1c9c9; background: #fdeeee; }
+    .chip-warn { color: var(--warn); border-color: #f3d8ae; background: #fff3df; }
+
+    .workspace {
+      height: calc(100vh - 210px);
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font: 700 14px/1.2 'Space Grotesk', sans-serif;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(110px, 1fr));
+      gap: 8px;
+    }
+
+    .meta .kv {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: #f9fbff;
+    }
+
+    .k { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .v { font-weight: 600; font-size: 13px; word-break: break-word; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .row {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    label { font-size: 12px; color: var(--muted); }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+
+    textarea { min-height: 80px; resize: vertical; }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    .segments {
+      max-height: 320px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fdfefe;
+    }
+
+    .segment {
+      padding: 10px;
+      border-bottom: 1px solid #ecf1fa;
+      display: grid;
+      gap: 4px;
+    }
+
+    .segment:last-child { border-bottom: none; }
+
+    .segment-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+
+    .segment-text { font-size: 14px; }
+
+    .raw {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow: auto;
+      background: #0f172a;
+      color: #d3e1ff;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .catalog-list {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fafcff;
+      max-height: 220px;
+      overflow: auto;
+      padding: 8px;
+    }
+
+    .catalog-item {
+      border: 1px solid #e2eaf7;
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #fff;
+    }
+
+    .catalog-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .catalog-item-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .catalog-item-sub {
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .btn-mini {
+      padding: 6px 8px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    .banner {
+      font-size: 13px;
+      border-radius: 10px;
+      padding: 9px 10px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .banner.show { display: block; }
+    .banner.ok { background: #e9f9ef; border: 1px solid #bfe8cd; color: #0f7f4f; }
+    .banner.error { background: #fdeeee; border: 1px solid #f1c8c8; color: #9f2e2e; }
+
+    .empty {
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+      padding: 30px 20px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      background: #f9fbff;
+    }
+
+    @media (max-width: 1024px) {
+      .layout { grid-template-columns: 1fr; }
+      .calls-list, .workspace { height: auto; max-height: none; }
+      .meta { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .grid-2 { grid-template-columns: 1fr; }
+      .catalog-grid { grid-template-columns: 1fr; }
+      .upload-row { justify-content: flex-start; }
+      .topbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div>
+        <h1 class="title">Call Routing Console</h1>
+        <p class="subtitle">Upload calls, review AI routing, accept or override categories, and export reviewed result.</p>
+      </div>
+      <form id="process-form" class="upload-row">
+        <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/*" />
+        <button id="process-btn" class="btn btn-primary" type="submit">Process Call</button>
+      </form>
+    </header>
+
+    <section class="layout">
+      <aside class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Processed Calls</h2>
+          <button id="clear-btn" class="btn btn-ghost" type="button">Clear All</button>
+        </div>
+        <ul id="calls-list" class="calls-list"></ul>
+      </aside>
+
+      <main class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Call Review</h2>
+          <div class="toolbar">
+            <button id="accept-btn" class="btn btn-ok" type="button">Accept AI</button>
+            <button id="reject-btn" class="btn btn-bad" type="button">Reject AI</button>
+            <button id="save-btn" class="btn btn-primary" type="button">Save Decision</button>
+            <button id="export-btn" class="btn btn-ghost" type="button">Export JSON</button>
+            <button id="copy-btn" class="btn btn-ghost" type="button">Copy JSON</button>
+          </div>
+        </div>
+
+        <div class="workspace" id="workspace"></div>
+      </main>
+    </section>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'ts_calls_review_state_v1';
+    const PRIORITY_PRESETS = ['low', 'medium', 'high', 'critical'];
+
+    const FALLBACK_CATALOG = {
+      groups: [
+        { id: 'technical_support', title: 'Техническая поддержка', description: 'Общие вопросы и первичная обработка.' },
+        { id: 'sales_department', title: 'Отдел продаж', description: 'Консультации и приобретение услуг.' },
+        { id: 'training_department', title: 'Отдел по обучению', description: 'Курсы и учебные программы.' },
+        { id: 'marketing_conferences', title: 'Маркетинговый отдел (конференции)', description: 'Конференции и мероприятия.' }
+      ],
+      intents: [
+        { id: 'spam.call', title: 'Спам', default_group: 'technical_support', priority: 'high', examples: ['это спам'] },
+        { id: 'training.courses', title: 'Обучение (курсы)', default_group: 'training_department', priority: 'medium', examples: ['хочу записаться на курс'] },
+        { id: 'consultation.general', title: 'Консультация', default_group: 'sales_department', priority: 'medium', examples: ['нужна консультация'] },
+        { id: 'sales.service_purchase', title: 'Приобретение услуг', default_group: 'sales_department', priority: 'high', examples: ['хочу купить услугу'] },
+        { id: 'conference.invite_company', title: 'Приглашение компании на конференцию', default_group: 'marketing_conferences', priority: 'medium', examples: ['приглашаем на конференцию'] },
+        { id: 'conference.company_participation', title: 'Участие компании в конференции', default_group: 'marketing_conferences', priority: 'medium', examples: ['хотим участвовать в конференции'] },
+        { id: 'misc.triage', title: 'Неопределенное обращение', default_group: 'technical_support', priority: 'medium', examples: ['есть вопрос'] }
+      ]
+    };
+
+    const state = {
+      calls: [],
+      selectedCallId: null,
+      processing: false,
+      banner: null,
+      catalog: cloneCatalog(FALLBACK_CATALOG)
+    };
+
+    const el = {
+      form: document.getElementById('process-form'),
+      file: document.getElementById('audio-file'),
+      processBtn: document.getElementById('process-btn'),
+      callsList: document.getElementById('calls-list'),
+      workspace: document.getElementById('workspace'),
+      clearBtn: document.getElementById('clear-btn'),
+      acceptBtn: document.getElementById('accept-btn'),
+      rejectBtn: document.getElementById('reject-btn'),
+      saveBtn: document.getElementById('save-btn'),
+      exportBtn: document.getElementById('export-btn'),
+      copyBtn: document.getElementById('copy-btn')
+    };
+
+    async function init() {
+      load();
+      bindEvents();
+      await loadRoutingCatalog(true);
+      render();
+    }
+
+    function bindEvents() {
+      el.form.addEventListener('submit', onProcessSubmit);
+      el.clearBtn.addEventListener('click', clearAllCalls);
+      el.acceptBtn.addEventListener('click', () => applyDecision('accepted'));
+      el.rejectBtn.addEventListener('click', () => applyDecision('rejected'));
+      el.saveBtn.addEventListener('click', () => saveDecision());
+      el.exportBtn.addEventListener('click', exportCurrentCall);
+      el.copyBtn.addEventListener('click', copyCurrentCall);
+    }
+
+    function load() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        state.calls = Array.isArray(parsed.calls) ? parsed.calls : [];
+        state.selectedCallId = parsed.selectedCallId || (state.calls[0] && state.calls[0].id) || null;
+      } catch (_err) {
+        state.calls = [];
+        state.selectedCallId = null;
+      }
+    }
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        calls: state.calls,
+        selectedCallId: state.selectedCallId
+      }));
+    }
+
+    async function loadRoutingCatalog(silent) {
+      try {
+        const response = await fetch('/api/v1/routing-config');
+        const payload = await safeJson(response);
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : 'Failed to load routing config');
+        }
+        state.catalog = normalizeCatalog(payload);
+      } catch (err) {
+        state.catalog = cloneCatalog(FALLBACK_CATALOG);
+        if (!silent) {
+          setBanner('Routing config load failed. Using local fallback presets.', 'error');
+        }
+      }
+    }
+
+    async function onProcessSubmit(event) {
+      event.preventDefault();
+      const file = el.file.files[0];
+      if (!file) {
+        setBanner('Please select an audio file before processing.', 'error');
+        return;
+      }
+
+      state.processing = true;
+      renderActions();
+      setBanner('Processing call. This can take time on CPU.', 'ok');
+
+      const body = new FormData();
+      body.append('audio', file, file.name);
+
+      try {
+        const response = await fetch('/api/v1/process-call', { method: 'POST', body });
+        const payload = await safeJson(response);
+
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : 'Request failed');
+        }
+
+        const call = toCallRecord(file, payload);
+        state.calls.unshift(call);
+        state.selectedCallId = call.id;
+        persist();
+        render();
+        setBanner('Call processed and added to review queue.', 'ok');
+        el.file.value = '';
+      } catch (err) {
+        setBanner(String(err.message || err), 'error');
+      } finally {
+        state.processing = false;
+        renderActions();
+      }
+    }
+
+    function toCallRecord(file, payload) {
+      const routing = payload && payload.routing ? payload.routing : {};
+      const callId = (payload && payload.call_id) || '';
+      const now = new Date().toISOString();
+      const suggestedIntentId = routing.intent_id || 'misc.triage';
+      const intentMeta = getIntentMeta(suggestedIntentId);
+      const defaultGroup = intentMeta ? intentMeta.default_group : (state.catalog.groups[0] ? state.catalog.groups[0].id : '');
+      const defaultPriority = intentMeta ? intentMeta.priority : 'medium';
+
+      return {
+        id: crypto.randomUUID ? crypto.randomUUID() : 'call-' + Date.now(),
+        sourceFilename: file.name,
+        createdAt: now,
+        callId,
+        transcript: payload && payload.transcript ? payload.transcript : { segments: [] },
+        raw: payload,
+        review: {
+          decision: 'pending',
+          intentId: suggestedIntentId,
+          priority: normalizePriority(routing.priority || defaultPriority),
+          group: routing.suggested_group || defaultGroup,
+          comment: ''
+        },
+        aiSuggestion: {
+          intentId: suggestedIntentId,
+          confidence: routing.intent_confidence,
+          priority: normalizePriority(routing.priority || defaultPriority),
+          group: routing.suggested_group || defaultGroup
+        }
+      };
+    }
+
+    function render() {
+      renderCallsList();
+      renderWorkspace();
+      renderActions();
+    }
+
+    function renderCallsList() {
+      if (state.calls.length === 0) {
+        el.callsList.innerHTML = '<li class="empty">No calls yet. Upload an audio file to start review.</li>';
+        return;
+      }
+
+      el.callsList.innerHTML = state.calls.map((call) => {
+        const active = call.id === state.selectedCallId ? 'active' : '';
+        const decisionChip = call.review.decision === 'accepted'
+          ? '<span class="chip chip-ok">accepted</span>'
+          : call.review.decision === 'rejected'
+            ? '<span class="chip chip-bad">rejected</span>'
+            : '<span class="chip chip-warn">pending</span>';
+
+        const groupChip = '<span class="chip">' + escapeHtml(call.review.group || 'unassigned') + '</span>';
+
+        return (
+          '<li class="call-item ' + active + '" data-id="' + call.id + '">' +
+            '<div class="call-main">' +
+              '<div class="call-name">' + escapeHtml(call.sourceFilename) + '</div>' +
+              '<div class="call-time">' + formatTime(call.createdAt) + '</div>' +
+            '</div>' +
+            '<div class="chips">' + decisionChip + groupChip + '</div>' +
+          '</li>'
+        );
+      }).join('');
+
+      [...el.callsList.querySelectorAll('.call-item')].forEach((item) => {
+        item.addEventListener('click', () => {
+          state.selectedCallId = item.dataset.id;
+          persist();
+          render();
+        });
+      });
+    }
+
+    function renderWorkspace() {
+      const call = getSelectedCall();
+      const catalogBlock = renderCatalogBlock();
+
+      if (!call) {
+        el.workspace.innerHTML = catalogBlock + '<section class="card"><div class="empty">Select a call from the list to review routing details.</div></section>';
+        bindCatalogInputs();
+        renderBanner();
+        return;
+      }
+
+      const segments = (call.transcript && call.transcript.segments) || [];
+      const suggestion = call.aiSuggestion || {};
+      const groupOptions = getGroupOptions();
+      const intentOptions = getIntentOptions();
+
+      const metaBlock = `
+        <section class="card">
+          <h3>Call Summary</h3>
+          <div class="meta">
+            <div class="kv"><div class="k">Source file</div><div class="v">${escapeHtml(call.sourceFilename || '-')}</div></div>
+            <div class="kv"><div class="k">Call ID</div><div class="v">${escapeHtml(call.callId || '-')}</div></div>
+            <div class="kv"><div class="k">Segments</div><div class="v">${segments.length}</div></div>
+            <div class="kv"><div class="k">Decision</div><div class="v">${escapeHtml(call.review.decision)}</div></div>
+          </div>
+        </section>
+      `;
+
+      const routingBlock = `
+        <section class="card">
+          <h3>Routing Review</h3>
+          <div class="grid-2">
+            <div>
+              <div class="row">
+                <label>AI intent</label>
+                <input value="${escapeAttr(suggestion.intentId || 'n/a')}" disabled />
+              </div>
+              <div class="row">
+                <label>AI confidence</label>
+                <input value="${formatConfidence(suggestion.confidence)}" disabled />
+              </div>
+              <div class="row">
+                <label>AI group</label>
+                <input value="${escapeAttr(suggestion.group || 'n/a')}" disabled />
+              </div>
+            </div>
+            <div>
+              <div class="row">
+                <label>Intent preset</label>
+                <select id="intent-preset">
+                  <option value="">Custom value</option>
+                  ${intentOptions.map((intent) => {
+                    const selected = intent.id === call.review.intentId ? 'selected' : '';
+                    return `<option value="${escapeAttr(intent.id)}" ${selected}>${escapeHtml(intent.title)} (${escapeHtml(intent.id)})</option>`;
+                  }).join('')}
+                </select>
+              </div>
+              <div class="row">
+                <label>Final intent id</label>
+                <input id="review-intent" value="${escapeAttr(call.review.intentId)}" />
+              </div>
+              <div class="row">
+                <label>Final priority</label>
+                <select id="review-priority">
+                  ${PRIORITY_PRESETS.map((value) => {
+                    const selected = value === call.review.priority ? 'selected' : '';
+                    return `<option value="${value}" ${selected}>${value}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+              <div class="row">
+                <label>Final group</label>
+                <input id="review-group" list="group-list" value="${escapeAttr(call.review.group)}" />
+                <datalist id="group-list">
+                  ${groupOptions.map((group) => `<option value="${escapeAttr(group.id)}">${escapeHtml(group.title)}</option>`).join('')}
+                </datalist>
+              </div>
+              <div class="row">
+                <label>Reviewer comment</label>
+                <textarea id="review-comment">${escapeHtml(call.review.comment || '')}</textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+      `;
+
+      const transcriptBlock = `
+        <section class="card">
+          <h3>Transcript</h3>
+          <div class="segments">
+            ${segments.length === 0 ? '<div class="empty">No transcript segments for this call.</div>' : segments.map((seg) => {
+              return (
+                '<div class="segment">' +
+                  '<div class="segment-meta">' +
+                    '<span>' + formatSec(seg.start) + 's - ' + formatSec(seg.end) + 's</span>' +
+                    '<span class="chip">' + escapeHtml(seg.speaker || 'speaker') + '</span>' +
+                    '<span class="chip">' + escapeHtml(seg.role || 'role') + '</span>' +
+                  '</div>' +
+                  '<div class="segment-text">' + escapeHtml(seg.text || '') + '</div>' +
+                '</div>'
+              );
+            }).join('')}
+          </div>
+        </section>
+      `;
+
+      const rawBlock = `
+        <section class="card">
+          <h3>Raw API JSON</h3>
+          <pre class="raw">${escapeHtml(JSON.stringify(makeReviewedPayload(call), null, 2))}</pre>
+        </section>
+      `;
+
+      el.workspace.innerHTML = metaBlock + routingBlock + transcriptBlock + catalogBlock + rawBlock;
+
+      bindReviewInputs();
+      bindCatalogInputs();
+      renderBanner();
+    }
+
+    function renderCatalogBlock() {
+      const groups = getGroupOptions();
+      const intents = getIntentOptions();
+      return `
+        <section class="card">
+          <h3>Routing Catalog Management</h3>
+          <div class="toolbar">
+            <button id="refresh-catalog-btn" class="btn btn-ghost btn-mini" type="button">Refresh Catalog</button>
+          </div>
+          <div id="local-banner" class="banner"></div>
+          <div class="catalog-grid">
+            <div>
+              <div class="row">
+                <label>Groups (${groups.length})</label>
+                <div class="catalog-list">
+                  ${groups.length === 0 ? '<div class="catalog-item-sub">No groups configured.</div>' : groups.map((group) => `
+                    <div class="catalog-item">
+                      <div class="catalog-item-title">
+                        <span>${escapeHtml(group.title)} (${escapeHtml(group.id)})</span>
+                        <button class="btn btn-bad btn-mini js-del-group" data-id="${escapeAttr(group.id)}" type="button">Delete</button>
+                      </div>
+                      <div class="catalog-item-sub">${escapeHtml(group.description || '')}</div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+              <form id="add-group-form">
+                <div class="row">
+                  <label>New group id</label>
+                  <input id="add-group-id" placeholder="marketing_conferences" />
+                </div>
+                <div class="row">
+                  <label>New group title</label>
+                  <input id="add-group-title" placeholder="Маркетинговый отдел (конференции)" />
+                </div>
+                <div class="row">
+                  <label>Description</label>
+                  <input id="add-group-description" placeholder="Optional description" />
+                </div>
+                <button class="btn btn-primary btn-mini" type="submit">Add Group</button>
+              </form>
+            </div>
+            <div>
+              <div class="row">
+                <label>Intents (${intents.length})</label>
+                <div class="catalog-list">
+                  ${intents.length === 0 ? '<div class="catalog-item-sub">No intents configured.</div>' : intents.map((intent) => `
+                    <div class="catalog-item">
+                      <div class="catalog-item-title">
+                        <span>${escapeHtml(intent.title)} (${escapeHtml(intent.id)})</span>
+                        <button class="btn btn-bad btn-mini js-del-intent" data-id="${escapeAttr(intent.id)}" type="button">Delete</button>
+                      </div>
+                      <div class="catalog-item-sub">
+                        group: ${escapeHtml(intent.default_group)} | priority: ${escapeHtml(intent.priority)}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+              <form id="add-intent-form">
+                <div class="row">
+                  <label>New intent id</label>
+                  <input id="add-intent-id" placeholder="conference.invite_company" />
+                </div>
+                <div class="row">
+                  <label>Intent title</label>
+                  <input id="add-intent-title" placeholder="Приглашение компании на конференцию" />
+                </div>
+                <div class="row">
+                  <label>Default group</label>
+                  <select id="add-intent-group">
+                    ${groups.map((group) => `<option value="${escapeAttr(group.id)}">${escapeHtml(group.title)} (${escapeHtml(group.id)})</option>`).join('')}
+                  </select>
+                </div>
+                <div class="row">
+                  <label>Priority</label>
+                  <select id="add-intent-priority">
+                    ${PRIORITY_PRESETS.map((value) => `<option value="${value}">${value}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="row">
+                  <label>Examples (one per line)</label>
+                  <textarea id="add-intent-examples" placeholder="хотим пригласить вашу компанию на конференцию"></textarea>
+                </div>
+                <div class="row">
+                  <label>Description</label>
+                  <input id="add-intent-description" placeholder="Optional description" />
+                </div>
+                <div class="row">
+                  <label>Tags (comma-separated)</label>
+                  <input id="add-intent-tags" placeholder="conference, marketing" />
+                </div>
+                <button class="btn btn-primary btn-mini" type="submit">Add Intent</button>
+              </form>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+
+    function bindReviewInputs() {
+      const call = getSelectedCall();
+      if (!call) return;
+
+      const intentPreset = document.getElementById('intent-preset');
+      const intentInput = document.getElementById('review-intent');
+      const priorityInput = document.getElementById('review-priority');
+      const groupInput = document.getElementById('review-group');
+      const commentInput = document.getElementById('review-comment');
+      if (!intentInput || !intentPreset || !priorityInput || !groupInput || !commentInput) return;
+
+      intentPreset.addEventListener('change', () => {
+        const selected = getIntentMeta(intentPreset.value);
+        if (!selected) return;
+        call.review.intentId = selected.id;
+        call.review.priority = selected.priority;
+        call.review.group = selected.default_group;
+        persist();
+        renderWorkspace();
+        renderCallsList();
+      });
+
+      intentInput.addEventListener('input', () => {
+        call.review.intentId = intentInput.value.trim();
+        persist();
+        renderCallsList();
+      });
+
+      priorityInput.addEventListener('change', () => {
+        call.review.priority = priorityInput.value;
+        persist();
+        renderCallsList();
+      });
+
+      groupInput.addEventListener('input', () => {
+        call.review.group = groupInput.value.trim();
+        persist();
+        renderCallsList();
+      });
+
+      commentInput.addEventListener('input', () => {
+        call.review.comment = commentInput.value;
+        persist();
+      });
+    }
+
+    function bindCatalogInputs() {
+      const refreshBtn = document.getElementById('refresh-catalog-btn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+          await loadRoutingCatalog(false);
+          render();
+          setBanner('Routing catalog refreshed from server.', 'ok');
+        });
+      }
+
+      const addGroupForm = document.getElementById('add-group-form');
+      if (addGroupForm) {
+        addGroupForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const id = document.getElementById('add-group-id').value.trim();
+          const title = document.getElementById('add-group-title').value.trim();
+          const description = document.getElementById('add-group-description').value.trim();
+          if (!id || !title) {
+            setBanner('Group id and title are required.', 'error');
+            return;
+          }
+          try {
+            const catalog = await apiJson('/api/v1/routing-config/groups', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id, title, description })
+            });
+            state.catalog = normalizeCatalog(catalog);
+            addGroupForm.reset();
+            render();
+            setBanner('Routing group created.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      }
+
+      const addIntentForm = document.getElementById('add-intent-form');
+      if (addIntentForm) {
+        addIntentForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const id = document.getElementById('add-intent-id').value.trim();
+          const title = document.getElementById('add-intent-title').value.trim();
+          const default_group = document.getElementById('add-intent-group').value.trim();
+          const priority = document.getElementById('add-intent-priority').value;
+          const examples = document.getElementById('add-intent-examples').value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const description = document.getElementById('add-intent-description').value.trim();
+          const tags = document.getElementById('add-intent-tags').value
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean);
+
+          if (!id || !title || !default_group || examples.length === 0) {
+            setBanner('Intent id, title, default group and at least one example are required.', 'error');
+            return;
+          }
+
+          try {
+            const catalog = await apiJson('/api/v1/routing-config/intents', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id,
+                title,
+                default_group,
+                priority,
+                examples,
+                description,
+                tags
+              })
+            });
+            state.catalog = normalizeCatalog(catalog);
+            addIntentForm.reset();
+            render();
+            setBanner('Routing intent created.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      }
+
+      [...document.querySelectorAll('.js-del-group')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const groupID = button.dataset.id;
+          if (!groupID) return;
+          if (!confirm('Delete group "' + groupID + '"?')) return;
+          try {
+            const catalog = await apiJson('/api/v1/routing-config/groups/' + encodeURIComponent(groupID), {
+              method: 'DELETE'
+            });
+            state.catalog = normalizeCatalog(catalog);
+            render();
+            setBanner('Routing group deleted.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-del-intent')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const intentID = button.dataset.id;
+          if (!intentID) return;
+          if (!confirm('Delete intent "' + intentID + '"?')) return;
+          try {
+            const catalog = await apiJson('/api/v1/routing-config/intents/' + encodeURIComponent(intentID), {
+              method: 'DELETE'
+            });
+            state.catalog = normalizeCatalog(catalog);
+            render();
+            setBanner('Routing intent deleted.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+    }
+
+    function applyDecision(decision) {
+      const call = getSelectedCall();
+      if (!call) return;
+
+      if (decision === 'accepted') {
+        call.review.intentId = call.aiSuggestion.intentId || call.review.intentId;
+        call.review.priority = call.aiSuggestion.priority || call.review.priority;
+        call.review.group = call.aiSuggestion.group || call.review.group;
+      }
+
+      call.review.decision = decision;
+      persist();
+      render();
+      setBanner('Decision set to "' + decision + '".', 'ok');
+    }
+
+    function saveDecision() {
+      const call = getSelectedCall();
+      if (!call) return;
+
+      if (!call.review.intentId || !call.review.group) {
+        setBanner('Final intent id and final group are required.', 'error');
+        return;
+      }
+
+      if (call.review.decision === 'pending') {
+        call.review.decision = 'accepted';
+      }
+
+      persist();
+      render();
+      setBanner('Decision saved for selected call.', 'ok');
+    }
+
+    function clearAllCalls() {
+      if (!confirm('Clear all locally stored calls and review decisions?')) return;
+      state.calls = [];
+      state.selectedCallId = null;
+      persist();
+      render();
+      setBanner('All local call records were removed.', 'ok');
+    }
+
+    async function copyCurrentCall() {
+      const call = getSelectedCall();
+      if (!call) return;
+      const text = JSON.stringify(makeReviewedPayload(call), null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+        setBanner('Reviewed JSON copied to clipboard.', 'ok');
+      } catch (_err) {
+        setBanner('Clipboard access failed in this browser context.', 'error');
+      }
+    }
+
+    function exportCurrentCall() {
+      const call = getSelectedCall();
+      if (!call) return;
+      const payload = JSON.stringify(makeReviewedPayload(call), null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (call.sourceFilename || 'call') + '.reviewed.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setBanner('Reviewed JSON exported.', 'ok');
+    }
+
+    function makeReviewedPayload(call) {
+      const base = call.raw || {};
+      return {
+        ...base,
+        reviewer_routing: {
+          decision: call.review.decision,
+          final_intent_id: call.review.intentId,
+          final_priority: call.review.priority,
+          final_group: call.review.group,
+          comment: call.review.comment || ''
+        }
+      };
+    }
+
+    function getSelectedCall() {
+      return state.calls.find((call) => call.id === state.selectedCallId) || null;
+    }
+
+    function renderActions() {
+      const disabled = state.processing;
+      el.processBtn.disabled = disabled;
+
+      const hasCall = Boolean(getSelectedCall());
+      el.acceptBtn.disabled = !hasCall || disabled;
+      el.rejectBtn.disabled = !hasCall || disabled;
+      el.saveBtn.disabled = !hasCall || disabled;
+      el.exportBtn.disabled = !hasCall || disabled;
+      el.copyBtn.disabled = !hasCall || disabled;
+    }
+
+    function setBanner(message, type) {
+      state.banner = { message, type };
+      renderBanner();
+    }
+
+    function renderBanner() {
+      const host = document.getElementById('local-banner');
+      if (!host) return;
+
+      if (!state.banner) {
+        host.className = 'banner';
+        host.textContent = '';
+        return;
+      }
+
+      host.className = 'banner show ' + (state.banner.type === 'error' ? 'error' : 'ok');
+      host.textContent = state.banner.message;
+    }
+
+    function getIntentMeta(intentID) {
+      return getIntentOptions().find((intent) => intent.id === intentID) || null;
+    }
+
+    function getIntentOptions() {
+      return (state.catalog && Array.isArray(state.catalog.intents) ? state.catalog.intents : []).slice();
+    }
+
+    function getGroupOptions() {
+      return (state.catalog && Array.isArray(state.catalog.groups) ? state.catalog.groups : []).slice();
+    }
+
+    function normalizeCatalog(raw) {
+      const normalized = { groups: [], intents: [] };
+
+      const groupsRaw = raw && raw.groups ? raw.groups : [];
+      if (Array.isArray(groupsRaw)) {
+        normalized.groups = groupsRaw.map((group) => ({
+          id: String(group.id || '').trim(),
+          title: String(group.title || '').trim(),
+          description: String(group.description || '').trim()
+        })).filter((group) => group.id && group.title);
+      } else {
+        normalized.groups = Object.keys(groupsRaw).map((id) => ({
+          id,
+          title: String(groupsRaw[id] && groupsRaw[id].title || id).trim(),
+          description: String(groupsRaw[id] && groupsRaw[id].description || '').trim()
+        })).filter((group) => group.id && group.title);
+      }
+
+      const intentsRaw = raw && raw.intents ? raw.intents : [];
+      if (Array.isArray(intentsRaw)) {
+        normalized.intents = intentsRaw.map((intent) => ({
+          id: String(intent.id || '').trim(),
+          title: String(intent.title || '').trim(),
+          description: String(intent.description || '').trim(),
+          default_group: String(intent.default_group || '').trim(),
+          priority: normalizePriority(intent.priority || 'medium'),
+          examples: Array.isArray(intent.examples) ? intent.examples.map((item) => String(item || '').trim()).filter(Boolean) : [],
+          tags: Array.isArray(intent.tags) ? intent.tags.map((item) => String(item || '').trim()).filter(Boolean) : []
+        })).filter((intent) => intent.id && intent.title);
+      } else {
+        normalized.intents = Object.keys(intentsRaw).map((id) => {
+          const item = intentsRaw[id] || {};
+          return {
+            id,
+            title: String(item.title || id).trim(),
+            description: String(item.description || '').trim(),
+            default_group: String(item.default_group || '').trim(),
+            priority: normalizePriority(item.priority || 'medium'),
+            examples: Array.isArray(item.examples) ? item.examples.map((sample) => String(sample || '').trim()).filter(Boolean) : [],
+            tags: Array.isArray(item.tags) ? item.tags.map((tag) => String(tag || '').trim()).filter(Boolean) : []
+          };
+        }).filter((intent) => intent.id && intent.title);
+      }
+
+      normalized.groups.sort((a, b) => a.id.localeCompare(b.id));
+      normalized.intents.sort((a, b) => a.id.localeCompare(b.id));
+      return normalized;
+    }
+
+    function normalizePriority(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (normalized === 'normal') return 'medium';
+      return PRIORITY_PRESETS.includes(normalized) ? normalized : 'medium';
+    }
+
+    function cloneCatalog(catalog) {
+      return JSON.parse(JSON.stringify(catalog || { groups: [], intents: [] }));
+    }
+
+    async function apiJson(url, options) {
+      const response = await fetch(url, options || {});
+      const payload = await safeJson(response);
+      if (!response.ok) {
+        throw new Error(payload && payload.error ? payload.error : 'Request failed');
+      }
+      return payload;
+    }
+
+    async function safeJson(response) {
+      try {
+        return await response.json();
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    function formatTime(isoDate) {
+      if (!isoDate) return '-';
+      const date = new Date(isoDate);
+      return date.toLocaleString();
+    }
+
+    function formatSec(value) {
+      if (typeof value !== 'number') return '-';
+      return value.toFixed(2);
+    }
+
+    function formatConfidence(value) {
+      if (typeof value !== 'number') return 'n/a';
+      return (value * 100).toFixed(1) + '%';
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/\n/g, ' ');
+    }
+
+    init();
+  </script>
+</body>
+</html>

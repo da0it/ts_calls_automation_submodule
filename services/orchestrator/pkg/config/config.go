@@ -18,6 +18,8 @@ type Config struct {
 	TicketGRPCAddr        string
 	NotificationGRPCAddr  string
 	EntityServiceURL      string
+	RoutingIntentsPath    string
+	RoutingGroupsPath     string
 }
 
 func Load() *Config {
@@ -31,6 +33,8 @@ func Load() *Config {
 		TicketGRPCAddr:        getEnv("TICKET_GRPC_ADDR", "localhost:50054"),
 		NotificationGRPCAddr:  getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50055"),
 		EntityServiceURL:      getEnv("ENTITY_SERVICE_URL", "http://localhost:5001"),
+		RoutingIntentsPath:    getEnv("ROUTING_INTENTS_PATH", "../router/configs/intents.json"),
+		RoutingGroupsPath:     getEnv("ROUTING_GROUPS_PATH", "../router/configs/groups.json"),
 	}
 
 	log.Printf("Orchestrator config loaded:")
@@ -41,6 +45,8 @@ func Load() *Config {
 	log.Printf("  - Ticket gRPC: %s", cfg.TicketGRPCAddr)
 	log.Printf("  - Notification gRPC: %s", cfg.NotificationGRPCAddr)
 	log.Printf("  - Entity service URL: %s", cfg.EntityServiceURL)
+	log.Printf("  - Routing intents path: %s", cfg.RoutingIntentsPath)
+	log.Printf("  - Routing groups path: %s", cfg.RoutingGroupsPath)
 
 	return cfg
 }

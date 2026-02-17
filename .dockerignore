@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+.gocache
+.run
+__pycache__
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.log
+*.pid
+deploy
+scripts
+services/orchestrator/uploads
+result*.json

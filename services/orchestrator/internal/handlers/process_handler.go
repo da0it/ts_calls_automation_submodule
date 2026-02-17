@@ -13,18 +13,23 @@ import (
 )
 
 type ProcessHandler struct {
-	orchestrator *services.OrchestratorService
-	uploadDir    string
+	orchestrator         *services.OrchestratorService
+	routingConfigService *services.RoutingConfigService
+	uploadDir            string
 }
 
-func NewProcessHandler(orchestrator *services.OrchestratorService) *ProcessHandler {
+func NewProcessHandler(
+	orchestrator *services.OrchestratorService,
+	routingConfigService *services.RoutingConfigService,
+) *ProcessHandler {
 	// Создаём директорию для загрузки файлов
 	uploadDir := "./uploads"
 	os.MkdirAll(uploadDir, 0755)
 
 	return &ProcessHandler{
-		orchestrator: orchestrator,
-		uploadDir:    uploadDir,
+		orchestrator:         orchestrator,
+		routingConfigService: routingConfigService,
+		uploadDir:            uploadDir,
 	}
 }
 
@@ -68,7 +73,11 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	}
 
 	// 2. Сохраняем файл
-	filename := fmt.Sprintf("%v_%s", c.Request.Context().Value("request_id"), file.Filename)
+	requestID := c.GetString("request_id")
+	if requestID == "" {
+		requestID = "no_request_id"
+	}
+	filename := fmt.Sprintf("%s_%s", requestID, file.Filename)
 	audioPath := filepath.Join(h.uploadDir, filename)
 
 	if err := c.SaveUploadedFile(file, audioPath); err != nil {
@@ -119,16 +128,19 @@ func (h *ProcessHandler) Health(c *gin.Context) {
 // @Tags info
 // @Produce json
 // @Success 200 {object} map[string]interface{}
-// @Router / [get]
+// @Router /api/info [get]
 func (h *ProcessHandler) Root(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"service":     "Ticket System Orchestrator",
 		"version":     "1.0.0",
 		"description": "Оркестрирует обработку звонков через все модули системы",
 		"endpoints": gin.H{
-			"process_call": "POST /api/v1/process-call",
-			"health":       "GET /health",
-			"docs":         "GET /docs (если включен Swagger)",
+			"process_call":    "POST /api/v1/process-call",
+			"routing_config":  "GET/PUT /api/v1/routing-config",
+			"routing_groups":  "POST/DELETE /api/v1/routing-config/groups",
+			"routing_intents": "POST/DELETE /api/v1/routing-config/intents",
+			"health":          "GET /health",
+			"docs":            "GET /docs (если включен Swagger)",
 		},
 		"pipeline": []string{
 			"1. Transcription + Diarization",

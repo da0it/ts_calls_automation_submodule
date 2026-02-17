@@ -34,4 +34,16 @@ cd services/orchestrator && go test ./...
 cd services/ticket_creation && go test ./...
 ```
 
+## Linux deployment
+
+Production-like Linux deployment (systemd + bootstrap scripts):
+
+- `/Users/dmitrii/ts_calls_automation_submodule/deploy/linux/DEPLOY.md`
+
+## Docker deployment
+
+Full stack in Docker Compose:
+
+- `/Users/dmitrii/ts_calls_automation_submodule/deploy/docker/DEPLOY.md`
+
 16.02.2026

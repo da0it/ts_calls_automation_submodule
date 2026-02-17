@@ -7,6 +7,25 @@ import sys
 from typing import Any, Dict, List, Tuple
 
 
+def _patch_torch_safe_globals() -> None:
+    """
+    PyTorch 2.6+ changed torch.load default to weights_only=True.
+    Some pyannote checkpoints require OmegaConf types; allowlist them
+    when safe-globals API is available.
+    """
+    try:
+        import torch
+        add_safe_globals = getattr(torch.serialization, "add_safe_globals", None)
+        if not add_safe_globals:
+            return
+        from omegaconf.dictconfig import DictConfig
+        from omegaconf.listconfig import ListConfig
+        add_safe_globals([ListConfig, DictConfig])
+    except Exception:
+        # Best-effort compatibility patch. Ignore if unavailable.
+        return
+
+
 def _normalize_speaker(speaker: Any) -> str:
     if speaker:
         return str(speaker).replace(" ", "_").upper()
@@ -210,6 +229,7 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--compute-type", default="int8")
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--vad-method", default="silero", choices=["silero", "pyannote"])
     parser.add_argument("--diarize", action="store_true")
     parser.add_argument("--diarize-model", default="pyannote/speaker-diarization-3.1")
     parser.add_argument("--diarization-backend", default="pyannote", choices=["pyannote", "nemo"])
@@ -224,13 +244,20 @@ def main() -> None:
             "Failed to import whisperx. Install it in the selected venv."
         ) from exc
 
+    _patch_torch_safe_globals()
+
     audio = whisperx.load_audio(args.audio)
-    model = whisperx.load_model(
-        args.model,
-        args.device,
-        compute_type=args.compute_type,
-        language=args.language,
-    )
+    load_model_kwargs: Dict[str, Any] = {
+        "compute_type": args.compute_type,
+        "language": args.language,
+        "vad_method": args.vad_method,
+    }
+    try:
+        model = whisperx.load_model(args.model, args.device, **load_model_kwargs)
+    except TypeError:
+        # Backward compatibility for whisperx versions without vad_method arg.
+        load_model_kwargs.pop("vad_method", None)
+        model = whisperx.load_model(args.model, args.device, **load_model_kwargs)
     result = model.transcribe(audio, batch_size=args.batch_size, language=args.language)
 
     align_model, metadata = whisperx.load_align_model(

@@ -1,5 +1,5 @@
 grpcio==1.78.0
-protobuf==3.20.0
+protobuf==6.31.1
 certifi==2026.1.4
 charset-normalizer==3.4.4
 DAWG-Python==0.7.2

@@ -6,6 +6,8 @@ import os
 import sys
 from concurrent import futures
 from pathlib import Path
+from threading import RLock
+from typing import Any, Dict
 
 import grpc
 
@@ -23,16 +25,42 @@ logging.basicConfig(
 logger = logging.getLogger("router-grpc")
 
 
-def load_intents() -> dict:
-    intents_path = Path(__file__).parent / "configs" / "intents.json"
+def load_intents(intents_path: Path) -> Dict[str, Dict[str, Any]]:
     with intents_path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        payload = json.load(file)
+    if not isinstance(payload, dict):
+        raise ValueError("intents payload must be a JSON object")
+    return payload
 
 
 class RoutingService(pb2_grpc.RoutingServiceServicer):
-    def __init__(self, intents: dict, analyzer: RubertEmbeddingAnalyzer) -> None:
+    def __init__(self, intents_path: Path, intents: Dict[str, Dict[str, Any]], analyzer: RubertEmbeddingAnalyzer) -> None:
+        self.intents_path = intents_path
         self.intents = intents
+        self._intents_mtime = intents_path.stat().st_mtime if intents_path.exists() else 0.0
+        self._lock = RLock()
         self.analyzer = analyzer
+
+    def _get_intents(self) -> Dict[str, Dict[str, Any]]:
+        try:
+            current_mtime = self.intents_path.stat().st_mtime
+        except OSError:
+            current_mtime = 0.0
+
+        with self._lock:
+            if current_mtime <= self._intents_mtime:
+                return self.intents
+
+            try:
+                loaded = load_intents(self.intents_path)
+            except Exception as exc:
+                logger.warning("failed to reload intents from %s: %s", self.intents_path, exc)
+                return self.intents
+
+            self.intents = loaded
+            self._intents_mtime = current_mtime
+            logger.info("reloaded intents config from %s (%d intents)", self.intents_path, len(self.intents))
+            return self.intents
 
     def Route(self, request: pb2.RouteRequest, context: grpc.ServicerContext) -> pb2.RouteResponse:
         if len(request.segments) == 0:
@@ -58,7 +86,7 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
                 meta={},
             )
 
-            analysis = self.analyzer.analyze(call, self.intents)
+            analysis = self.analyzer.analyze(call, self._get_intents())
 
             suggested_group = ""
             for target in analysis.suggested_targets:
@@ -90,8 +118,12 @@ def serve() -> None:
     port = os.getenv("ROUTER_GRPC_PORT", "50052")
     model_name = os.getenv("ROUTER_MODEL_NAME", "DeepPavlov/rubert-base-cased")
     min_confidence = float(os.getenv("ROUTER_MIN_CONFIDENCE", "0.55"))
+    intents_path = Path(
+        os.getenv("ROUTER_INTENTS_PATH", str(Path(__file__).parent / "configs" / "intents.json"))
+    )
 
-    intents = load_intents()
+    intents = load_intents(intents_path)
+    logger.info("loaded intents config from %s (%d intents)", intents_path, len(intents))
     analyzer = RubertEmbeddingAnalyzer(
         model_name=model_name,
         min_confidence=min_confidence,
@@ -99,7 +131,7 @@ def serve() -> None:
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     pb2_grpc.add_RoutingServiceServicer_to_server(
-        RoutingService(intents=intents, analyzer=analyzer),
+        RoutingService(intents_path=intents_path, intents=intents, analyzer=analyzer),
         server,
     )
 

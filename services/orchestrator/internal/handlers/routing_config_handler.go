@@ -1,0 +1,119 @@
+package handlers
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"orchestrator/internal/services"
+)
+
+type createGroupRequest struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type createIntentRequest struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description"`
+	Examples     []string `json:"examples"`
+	DefaultGroup string   `json:"default_group"`
+	Priority     string   `json:"priority"`
+	Tags         []string `json:"tags"`
+}
+
+func (h *ProcessHandler) GetRoutingConfig(c *gin.Context) {
+	catalog, err := h.routingConfigService.GetCatalog()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+func (h *ProcessHandler) UpdateRoutingConfig(c *gin.Context) {
+	var payload services.RoutingCatalog
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	catalog, err := h.routingConfigService.ReplaceCatalog(&payload)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+func (h *ProcessHandler) CreateRoutingGroup(c *gin.Context) {
+	var payload createGroupRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	catalog, err := h.routingConfigService.AddGroup(services.RoutingGroup{
+		ID:          payload.ID,
+		Title:       payload.Title,
+		Description: payload.Description,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+func (h *ProcessHandler) DeleteRoutingGroup(c *gin.Context) {
+	groupID := strings.TrimSpace(c.Param("id"))
+	catalog, err := h.routingConfigService.DeleteGroup(groupID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+func (h *ProcessHandler) CreateRoutingIntent(c *gin.Context) {
+	var payload createIntentRequest
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	catalog, err := h.routingConfigService.AddIntent(services.RoutingIntent{
+		ID:           payload.ID,
+		Title:        payload.Title,
+		Description:  payload.Description,
+		Examples:     payload.Examples,
+		DefaultGroup: payload.DefaultGroup,
+		Priority:     payload.Priority,
+		Tags:         payload.Tags,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+func (h *ProcessHandler) DeleteRoutingIntent(c *gin.Context) {
+	intentID := strings.TrimSpace(c.Param("id"))
+	catalog, err := h.routingConfigService.DeleteIntent(intentID)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}

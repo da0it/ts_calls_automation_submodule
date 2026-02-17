@@ -65,8 +65,13 @@ func main() {
 
 	log.Println("✓ Orchestrator service initialized")
 
+	routingConfigService := services.NewRoutingConfigService(
+		cfg.RoutingIntentsPath,
+		cfg.RoutingGroupsPath,
+	)
+
 	// Инициализация handler
-	processHandler := handlers.NewProcessHandler(orchestrator)
+	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService)
 	grpcHandler := handlers.NewProcessGRPCHandler(orchestrator)
 
 	// HTTP router
@@ -139,12 +144,21 @@ func setupRouter(h *handlers.ProcessHandler) *gin.Engine {
 	router.MaxMultipartMemory = 500 << 20
 
 	// Routes
-	router.GET("/", h.Root)
+	router.GET("/", func(c *gin.Context) {
+		c.File("./web/index.html")
+	})
+	router.GET("/api/info", h.Root)
 	router.GET("/health", h.Health)
 
 	api := router.Group("/api/v1")
 	{
 		api.POST("/process-call", h.ProcessCall)
+		api.GET("/routing-config", h.GetRoutingConfig)
+		api.PUT("/routing-config", h.UpdateRoutingConfig)
+		api.POST("/routing-config/groups", h.CreateRoutingGroup)
+		api.DELETE("/routing-config/groups/:id", h.DeleteRoutingGroup)
+		api.POST("/routing-config/intents", h.CreateRoutingIntent)
+		api.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
 	}
 
 	return router

@@ -8,6 +8,7 @@ from transcribe_logic.audio_utils import to_wav_16k_mono_preprocessed
 from transcribe_logic.diarization_ext import whisper_diarize_via_cli
 from transcribe_logic.roles import infer_role_map_from_segments, assign_roles_to_segments
 from transcribe_logic.whisperx_ext import whisperx_diarize_via_cli
+from transcribe_logic.whisperx_runtime import whisperx_diarize_inprocess
 
 def _default_whisper_venv_python(repo_dir: str) -> str:
     candidates = [
@@ -156,23 +157,32 @@ def transcribe_with_roles(
         backend = os.getenv("ASR_BACKEND", "faster").strip().lower()
         if backend == "whisperx":
             diarization_backend = os.getenv("WHISPERX_DIARIZATION_BACKEND", "pyannote").strip().lower()
-            segments = whisperx_diarize_via_cli(
-                wav,
-                venv_python=_default_whisperx_venv_python(),
+            common_kwargs = dict(
                 model=os.getenv("WHISPERX_MODEL", "large-v3"),
                 language=os.getenv("WHISPERX_LANGUAGE", os.getenv("WHISPER_LANGUAGE", "ru")),
                 device=os.getenv("WHISPERX_DEVICE", "cpu"),
                 compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "int8"),
                 batch_size=int(os.getenv("WHISPERX_BATCH_SIZE", "4")),
+                vad_method=os.getenv("WHISPERX_VAD_METHOD", "silero").strip().lower(),
                 diarize=os.getenv("WHISPERX_DIARIZE", "1").strip().lower() in {"1", "true", "yes", "on"},
                 diarize_model=os.getenv("WHISPERX_DIARIZE_MODEL", "pyannote/speaker-diarization-3.1"),
                 diarization_backend=diarization_backend,
                 nemo_repo_dir=os.getenv("WHISPER_REPO_DIR", whisper_repo_dir),
                 hf_token=os.getenv("HF_TOKEN"),
             )
-            mode = "whisperx"
+            persistent = os.getenv("WHISPERX_PERSISTENT", "1").strip().lower() in {"1", "true", "yes", "on"}
+            if persistent:
+                segments = whisperx_diarize_inprocess(wav, **common_kwargs)
+                mode = "whisperx_persistent"
+            else:
+                segments = whisperx_diarize_via_cli(
+                    wav,
+                    venv_python=_default_whisperx_venv_python(),
+                    **common_kwargs,
+                )
+                mode = "whisperx_cli"
             note = (
-                f"ASR backend whisperx: mono 16k -> whisperx transcribe+align+{diarization_backend} diarization -> role inference."
+                f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align+{diarization_backend} diarization -> role inference."
             )
         else:
             # 2) внешний diarizer (в отдельном venv)

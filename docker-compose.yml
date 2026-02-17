@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: tickets-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -18,5 +17,142 @@ services:
       timeout: 3s
       retries: 5
 
+  db-migrate:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./services/ticket_creation/migrations:/migrations:ro
+    command:
+      [
+        "sh",
+        "-c",
+        "psql -h postgres -U postgres -d tickets -f /migrations/001_create_tickets.up.sql",
+      ]
+
+  transcription:
+    build:
+      context: ./services/transcription
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/transcription.env
+    environment:
+      GRPC_HOST: 0.0.0.0
+      TRANSCRIPTION_GRPC_PORT: 50051
+      WHISPER_REPO_DIR: /opt/whisper-diarization
+      WHISPER_VENV_PYTHON: /opt/whisper-diarization/whisper_venv/bin/python
+      WHISPERX_VENV_PYTHON: /opt/whisper-diarization/whisper_venv/bin/python
+      FFMPEG_BIN: ffmpeg
+      FFPROBE_BIN: ffprobe
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+    ports:
+      - "50051:50051"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+
+  router:
+    build:
+      context: ./services/router
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/routing.env
+    environment:
+      ROUTER_GRPC_PORT: 50052
+      ROUTER_INTENTS_PATH: /shared-config/routing_intents.json
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+      - ./configs:/shared-config
+    ports:
+      - "50052:50052"
+
+  entity_extraction:
+    build:
+      context: ./services/entity_extraction
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/entity.env
+    ports:
+      - "5001:5001"
+
+  ticket_creation:
+    build:
+      context: ./services/ticket_creation
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/ticket.env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/tickets?sslmode=disable
+      PYTHON_NER_SERVICE_URL: http://entity_extraction:5001
+      GRPC_PORT: 50054
+      SERVER_PORT: 8080
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      entity_extraction:
+        condition: service_started
+    ports:
+      - "50054:50054"
+
+  notification_sender:
+    build:
+      context: ./services/notification_sender
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/notification.env
+    environment:
+      GRPC_PORT: 50055
+      HTTP_PORT: 8085
+    ports:
+      - "50055:50055"
+
+  orchestrator:
+    build:
+      context: ./services/orchestrator
+      dockerfile: dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./configs/orchestrator.env
+    environment:
+      HTTP_PORT: 8000
+      GRPC_PORT: 9000
+      TRANSCRIPTION_GRPC_ADDR: transcription:50051
+      ROUTING_GRPC_ADDR: router:50052
+      TICKET_GRPC_ADDR: ticket_creation:50054
+      NOTIFICATION_GRPC_ADDR: notification_sender:50055
+      ENTITY_SERVICE_URL: http://entity_extraction:5001
+      ROUTING_INTENTS_PATH: /shared-config/routing_intents.json
+      ROUTING_GROUPS_PATH: /shared-config/routing_groups.json
+    depends_on:
+      transcription:
+        condition: service_started
+      router:
+        condition: service_started
+      ticket_creation:
+        condition: service_started
+      notification_sender:
+        condition: service_started
+      entity_extraction:
+        condition: service_started
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - ./configs:/shared-config
+
 volumes:
   postgres_data:
+  huggingface_cache:
+  torch_cache:
