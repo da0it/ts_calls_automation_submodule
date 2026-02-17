@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -20,6 +21,9 @@ type Config struct {
 	EntityServiceURL      string
 	RoutingIntentsPath    string
 	RoutingGroupsPath     string
+	RoutingFeedbackPath   string
+	RoutingAutoLearn      bool
+	RoutingAutoLearnLimit int
 }
 
 func Load() *Config {
@@ -35,6 +39,9 @@ func Load() *Config {
 		EntityServiceURL:      getEnv("ENTITY_SERVICE_URL", "http://localhost:5001"),
 		RoutingIntentsPath:    getEnv("ROUTING_INTENTS_PATH", "../router/configs/intents.json"),
 		RoutingGroupsPath:     getEnv("ROUTING_GROUPS_PATH", "../router/configs/groups.json"),
+		RoutingFeedbackPath:   getEnv("ROUTING_FEEDBACK_PATH", "./data/routing_feedback.jsonl"),
+		RoutingAutoLearn:      getEnv("ROUTING_AUTO_LEARN", "1") == "1",
+		RoutingAutoLearnLimit: getEnvInt("ROUTING_AUTO_LEARN_LIMIT", 50),
 	}
 
 	log.Printf("Orchestrator config loaded:")
@@ -47,6 +54,9 @@ func Load() *Config {
 	log.Printf("  - Entity service URL: %s", cfg.EntityServiceURL)
 	log.Printf("  - Routing intents path: %s", cfg.RoutingIntentsPath)
 	log.Printf("  - Routing groups path: %s", cfg.RoutingGroupsPath)
+	log.Printf("  - Routing feedback path: %s", cfg.RoutingFeedbackPath)
+	log.Printf("  - Routing auto learn: %v", cfg.RoutingAutoLearn)
+	log.Printf("  - Routing auto learn limit: %d", cfg.RoutingAutoLearnLimit)
 
 	return cfg
 }
@@ -54,6 +64,17 @@ func Load() *Config {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		var parsed int
+		_, err := fmt.Sscanf(value, "%d", &parsed)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
 	}
 	return defaultValue
 }

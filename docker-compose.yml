@@ -135,6 +135,9 @@ services:
       ENTITY_SERVICE_URL: http://entity_extraction:5001
       ROUTING_INTENTS_PATH: /shared-config/routing_intents.json
       ROUTING_GROUPS_PATH: /shared-config/routing_groups.json
+      ROUTING_FEEDBACK_PATH: /shared-config/routing_feedback.jsonl
+      ROUTING_AUTO_LEARN: "1"
+      ROUTING_AUTO_LEARN_LIMIT: "50"
     depends_on:
       transcription:
         condition: service_started

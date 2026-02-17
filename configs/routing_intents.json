@@ -1,55 +1,26 @@
 {
-  "spam.call": {
-    "title": "Спам",
-    "description": "Нежелательные рекламные звонки, навязчивые предложения и автоматические обзвоны.",
+  "conference.company_participation": {
+    "title": "Участие компании в конференции",
+    "description": "Инициатива со стороны компании для участия в конференции, форумах и профильных мероприятиях.",
     "examples": [
-      "это рекламный звонок",
-      "навязывают услугу без запроса",
-      "это спам",
-      "не интересует, удалите номер"
+      "хотим участвовать в конференции",
+      "интересует участие в вашем мероприятии",
+      "нужны условия для участия компании",
+      "как подать заявку на участие в конференции"
     ],
-    "default_group": "technical_support",
-    "priority": "high",
-    "tags": ["spam", "abuse"]
-  },
-  "training.courses": {
-    "title": "Обучение (курсы)",
-    "description": "Запросы про обучение, курсы, расписание, стоимость и формат программ.",
-    "examples": [
-      "хочу записаться на курс",
-      "какие есть программы обучения",
-      "интересует обучение сотрудников",
-      "подскажите стоимость курса"
-    ],
-    "default_group": "training_department",
+    "default_group": "marketing_conferences",
     "priority": "medium",
-    "tags": ["training", "courses", "education"]
-  },
-  "consultation.general": {
-    "title": "Консультация",
-    "description": "Клиенту нужна консультация по возможностям продукта или услуги.",
-    "examples": [
-      "нужна консультация",
-      "расскажите подробнее про ваши услуги",
-      "хочу получить консультацию специалиста",
-      "подскажите, какой вариант мне подойдет"
+    "tags": [
+      "conference",
+      "marketing",
+      "participation"
     ],
-    "default_group": "sales_department",
-    "priority": "medium",
-    "tags": ["consultation", "pre-sales"]
-  },
-  "sales.service_purchase": {
-    "title": "Приобретение услуг",
-    "description": "Запросы на покупку, подключение или оформление услуги.",
-    "examples": [
-      "хочу купить вашу услугу",
-      "как оформить подключение",
-      "готов заключить договор",
-      "нужно оформить заказ"
-    ],
-    "default_group": "sales_department",
-    "priority": "high",
-    "tags": ["sales", "purchase", "deal"]
+    "keywords": [
+      "конференц",
+      "мероприят",
+      "участ",
+      "заявк"
+    ]
   },
   "conference.invite_company": {
     "title": "Приглашение компании на конференцию",
@@ -62,20 +33,39 @@
     ],
     "default_group": "marketing_conferences",
     "priority": "medium",
-    "tags": ["conference", "invitation", "marketing"]
-  },
-  "conference.company_participation": {
-    "title": "Участие компании в конференции",
-    "description": "Инициатива со стороны компании для участия в конференции, форумах и профильных мероприятиях.",
-    "examples": [
-      "хотим участвовать в конференции",
-      "интересует участие в вашем мероприятии",
-      "нужны условия для участия компании",
-      "как подать заявку на участие в конференции"
+    "tags": [
+      "conference",
+      "invitation",
+      "marketing"
     ],
-    "default_group": "marketing_conferences",
+    "keywords": [
+      "приглас",
+      "конференц",
+      "выступ",
+      "партнер"
+    ]
+  },
+  "consultation.general": {
+    "title": "Консультация",
+    "description": "Клиенту нужна консультация по возможностям продукта или услуги.",
+    "examples": [
+      "нужна консультация",
+      "расскажите подробнее про ваши услуги",
+      "хочу получить консультацию специалиста",
+      "подскажите, какой вариант мне подойдет"
+    ],
+    "default_group": "sales_department",
     "priority": "medium",
-    "tags": ["conference", "participation", "marketing"]
+    "tags": [
+      "consultation",
+      "pre-sales"
+    ],
+    "keywords": [
+      "консультац",
+      "подскаж",
+      "подроб",
+      "вопрос"
+    ]
   },
   "misc.triage": {
     "title": "Неопределенное обращение",
@@ -88,6 +78,84 @@
     ],
     "default_group": "technical_support",
     "priority": "medium",
-    "tags": ["triage"]
+    "tags": [
+      "triage"
+    ],
+    "keywords": [
+      "алло",
+      "подскаж",
+      "вопрос"
+    ]
+  },
+  "sales.service_purchase": {
+    "title": "Приобретение услуг",
+    "description": "Запросы на покупку, подключение или оформление услуги.",
+    "examples": [
+      "хочу купить вашу услугу",
+      "как оформить подключение",
+      "готов заключить договор",
+      "нужно оформить заказ"
+    ],
+    "default_group": "sales_department",
+    "priority": "high",
+    "tags": [
+      "deal",
+      "purchase",
+      "sales"
+    ],
+    "keywords": [
+      "куп",
+      "оформ",
+      "подключ",
+      "договор",
+      "заказ"
+    ]
+  },
+  "spam.call": {
+    "title": "Спам",
+    "description": "Нежелательные рекламные звонки, навязчивые предложения и автоматические обзвоны.",
+    "examples": [
+      "это рекламный звонок",
+      "навязывают услугу без запроса",
+      "это спам",
+      "не интересует, удалите номер"
+    ],
+    "default_group": "technical_support",
+    "priority": "high",
+    "tags": [
+      "abuse",
+      "spam"
+    ],
+    "keywords": [
+      "спам",
+      "реклам",
+      "навяз",
+      "робот",
+      "обзвон"
+    ]
+  },
+  "training.courses": {
+    "title": "Обучение (курсы)",
+    "description": "Запросы про обучение, курсы, расписание, стоимость и формат программ.",
+    "examples": [
+      "хочу записаться на курс",
+      "какие есть программы обучения",
+      "интересует обучение сотрудников",
+      "подскажите стоимость курса"
+    ],
+    "default_group": "training_department",
+    "priority": "medium",
+    "tags": [
+      "courses",
+      "education",
+      "training"
+    ],
+    "keywords": [
+      "курс",
+      "обуч",
+      "занят",
+      "запис",
+      "тренинг"
+    ]
   }
 }

@@ -22,6 +22,7 @@ type createIntentRequest struct {
 	DefaultGroup string   `json:"default_group"`
 	Priority     string   `json:"priority"`
 	Tags         []string `json:"tags"`
+	Keywords     []string `json:"keywords"`
 }
 
 func (h *ProcessHandler) GetRoutingConfig(c *gin.Context) {
@@ -96,6 +97,7 @@ func (h *ProcessHandler) CreateRoutingIntent(c *gin.Context) {
 		DefaultGroup: payload.DefaultGroup,
 		Priority:     payload.Priority,
 		Tags:         payload.Tags,
+		Keywords:     payload.Keywords,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

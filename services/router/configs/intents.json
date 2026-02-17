@@ -10,7 +10,17 @@
     ],
     "default_group": "technical_support",
     "priority": "high",
-    "tags": ["spam", "abuse"]
+    "tags": [
+      "spam",
+      "abuse"
+    ],
+    "keywords": [
+      "спам",
+      "реклам",
+      "навяз",
+      "робот",
+      "обзвон"
+    ]
   },
   "training.courses": {
     "title": "Обучение (курсы)",
@@ -23,7 +33,18 @@
     ],
     "default_group": "training_department",
     "priority": "medium",
-    "tags": ["training", "courses", "education"]
+    "tags": [
+      "training",
+      "courses",
+      "education"
+    ],
+    "keywords": [
+      "курс",
+      "обуч",
+      "занят",
+      "запис",
+      "тренинг"
+    ]
   },
   "consultation.general": {
     "title": "Консультация",
@@ -36,7 +57,16 @@
     ],
     "default_group": "sales_department",
     "priority": "medium",
-    "tags": ["consultation", "pre-sales"]
+    "tags": [
+      "consultation",
+      "pre-sales"
+    ],
+    "keywords": [
+      "консультац",
+      "подскаж",
+      "подроб",
+      "вопрос"
+    ]
   },
   "sales.service_purchase": {
     "title": "Приобретение услуг",
@@ -49,7 +79,18 @@
     ],
     "default_group": "sales_department",
     "priority": "high",
-    "tags": ["sales", "purchase", "deal"]
+    "tags": [
+      "sales",
+      "purchase",
+      "deal"
+    ],
+    "keywords": [
+      "куп",
+      "оформ",
+      "подключ",
+      "договор",
+      "заказ"
+    ]
   },
   "conference.invite_company": {
     "title": "Приглашение компании на конференцию",
@@ -62,7 +103,17 @@
     ],
     "default_group": "marketing_conferences",
     "priority": "medium",
-    "tags": ["conference", "invitation", "marketing"]
+    "tags": [
+      "conference",
+      "invitation",
+      "marketing"
+    ],
+    "keywords": [
+      "приглас",
+      "конференц",
+      "выступ",
+      "партнер"
+    ]
   },
   "conference.company_participation": {
     "title": "Участие компании в конференции",
@@ -75,7 +126,17 @@
     ],
     "default_group": "marketing_conferences",
     "priority": "medium",
-    "tags": ["conference", "participation", "marketing"]
+    "tags": [
+      "conference",
+      "participation",
+      "marketing"
+    ],
+    "keywords": [
+      "конференц",
+      "мероприят",
+      "участ",
+      "заявк"
+    ]
   },
   "misc.triage": {
     "title": "Неопределенное обращение",
@@ -88,6 +149,13 @@
     ],
     "default_group": "technical_support",
     "priority": "medium",
-    "tags": ["triage"]
+    "tags": [
+      "triage"
+    ],
+    "keywords": [
+      "алло",
+      "подскаж",
+      "вопрос"
+    ]
   }
 }

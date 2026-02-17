@@ -33,6 +33,7 @@ type RoutingIntent struct {
 	DefaultGroup string   `json:"default_group"`
 	Priority     string   `json:"priority"`
 	Tags         []string `json:"tags,omitempty"`
+	Keywords     []string `json:"keywords,omitempty"`
 }
 
 type RoutingCatalog struct {
@@ -53,6 +54,7 @@ type routingIntentFileEntry struct {
 	DefaultGroup string   `json:"default_group"`
 	Priority     string   `json:"priority"`
 	Tags         []string `json:"tags,omitempty"`
+	Keywords     []string `json:"keywords,omitempty"`
 }
 
 type RoutingConfigService struct {
@@ -228,6 +230,61 @@ func (s *RoutingConfigService) DeleteIntent(intentID string) (*RoutingCatalog, e
 	return s.loadCatalogLocked()
 }
 
+func (s *RoutingConfigService) AddExampleToIntent(intentID, example string, maxExamples int) (bool, error) {
+	intentID = strings.TrimSpace(intentID)
+	example = normalizeExampleText(example)
+	if intentID == "" {
+		return false, errors.New("intent id is required")
+	}
+	if example == "" {
+		return false, errors.New("example text is required")
+	}
+	if maxExamples <= 0 {
+		maxExamples = 50
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	catalog, err := s.loadCatalogLocked()
+	if err != nil {
+		return false, err
+	}
+
+	intentIndex := -1
+	for i, intent := range catalog.Intents {
+		if intent.ID == intentID {
+			intentIndex = i
+			break
+		}
+	}
+	if intentIndex == -1 {
+		return false, fmt.Errorf("intent %q not found", intentID)
+	}
+
+	intent := normalizeIntent(catalog.Intents[intentIndex])
+	exampleFold := strings.ToLower(example)
+	for _, existing := range intent.Examples {
+		if strings.ToLower(normalizeExampleText(existing)) == exampleFold {
+			return false, nil
+		}
+	}
+
+	intent.Examples = append([]string{example}, intent.Examples...)
+	if len(intent.Examples) > maxExamples {
+		intent.Examples = intent.Examples[:maxExamples]
+	}
+	catalog.Intents[intentIndex] = intent
+
+	if err := validateCatalog(catalog); err != nil {
+		return false, err
+	}
+	if err := s.saveCatalogLocked(catalog); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *RoutingConfigService) loadCatalogLocked() (*RoutingCatalog, error) {
 	groupsPayload := map[string]routingGroupFileEntry{}
 	if err := readJSONFile(s.groupsPath, &groupsPayload); err != nil {
@@ -261,6 +318,7 @@ func (s *RoutingConfigService) loadCatalogLocked() (*RoutingCatalog, error) {
 			DefaultGroup: intent.DefaultGroup,
 			Priority:     intent.Priority,
 			Tags:         intent.Tags,
+			Keywords:     intent.Keywords,
 		}))
 	}
 
@@ -301,6 +359,7 @@ func (s *RoutingConfigService) saveCatalogLocked(catalog *RoutingCatalog) error 
 			DefaultGroup: normalized.DefaultGroup,
 			Priority:     normalized.Priority,
 			Tags:         normalized.Tags,
+			Keywords:     normalized.Keywords,
 		}
 	}
 
@@ -410,7 +469,29 @@ func normalizeIntent(intent RoutingIntent) RoutingIntent {
 	}
 	sort.Strings(tags)
 	intent.Tags = tags
+
+	keywords := make([]string, 0, len(intent.Keywords))
+	seenKeywords := map[string]struct{}{}
+	for _, keyword := range intent.Keywords {
+		keyword = strings.TrimSpace(strings.ToLower(keyword))
+		if keyword == "" {
+			continue
+		}
+		if _, exists := seenKeywords[keyword]; exists {
+			continue
+		}
+		seenKeywords[keyword] = struct{}{}
+		keywords = append(keywords, keyword)
+	}
+	sort.Strings(keywords)
+	intent.Keywords = keywords
+
 	return intent
+}
+
+func normalizeExampleText(value string) string {
+	parts := strings.Fields(strings.TrimSpace(value))
+	return strings.Join(parts, " ")
 }
 
 func readJSONFile(path string, out any) error {

@@ -13,23 +13,26 @@ import (
 )
 
 type ProcessHandler struct {
-	orchestrator         *services.OrchestratorService
-	routingConfigService *services.RoutingConfigService
-	uploadDir            string
+	orchestrator           *services.OrchestratorService
+	routingConfigService   *services.RoutingConfigService
+	routingFeedbackService *services.RoutingFeedbackService
+	uploadDir              string
 }
 
 func NewProcessHandler(
 	orchestrator *services.OrchestratorService,
 	routingConfigService *services.RoutingConfigService,
+	routingFeedbackService *services.RoutingFeedbackService,
 ) *ProcessHandler {
 	// Создаём директорию для загрузки файлов
 	uploadDir := "./uploads"
 	os.MkdirAll(uploadDir, 0755)
 
 	return &ProcessHandler{
-		orchestrator:         orchestrator,
-		routingConfigService: routingConfigService,
-		uploadDir:            uploadDir,
+		orchestrator:           orchestrator,
+		routingConfigService:   routingConfigService,
+		routingFeedbackService: routingFeedbackService,
+		uploadDir:              uploadDir,
 	}
 }
 
@@ -135,12 +138,13 @@ func (h *ProcessHandler) Root(c *gin.Context) {
 		"version":     "1.0.0",
 		"description": "Оркестрирует обработку звонков через все модули системы",
 		"endpoints": gin.H{
-			"process_call":    "POST /api/v1/process-call",
-			"routing_config":  "GET/PUT /api/v1/routing-config",
-			"routing_groups":  "POST/DELETE /api/v1/routing-config/groups",
-			"routing_intents": "POST/DELETE /api/v1/routing-config/intents",
-			"health":          "GET /health",
-			"docs":            "GET /docs (если включен Swagger)",
+			"process_call":     "POST /api/v1/process-call",
+			"routing_config":   "GET/PUT /api/v1/routing-config",
+			"routing_groups":   "POST/DELETE /api/v1/routing-config/groups",
+			"routing_intents":  "POST/DELETE /api/v1/routing-config/intents",
+			"routing_feedback": "POST /api/v1/routing-feedback",
+			"health":           "GET /health",
+			"docs":             "GET /docs (если включен Swagger)",
 		},
 		"pipeline": []string{
 			"1. Transcription + Diarization",

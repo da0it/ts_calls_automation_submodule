@@ -69,9 +69,15 @@ func main() {
 		cfg.RoutingIntentsPath,
 		cfg.RoutingGroupsPath,
 	)
+	routingFeedbackService := services.NewRoutingFeedbackService(
+		cfg.RoutingFeedbackPath,
+		cfg.RoutingAutoLearn,
+		cfg.RoutingAutoLearnLimit,
+		routingConfigService,
+	)
 
 	// Инициализация handler
-	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService)
+	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService, routingFeedbackService)
 	grpcHandler := handlers.NewProcessGRPCHandler(orchestrator)
 
 	// HTTP router
@@ -159,6 +165,7 @@ func setupRouter(h *handlers.ProcessHandler) *gin.Engine {
 		api.DELETE("/routing-config/groups/:id", h.DeleteRoutingGroup)
 		api.POST("/routing-config/intents", h.CreateRoutingIntent)
 		api.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
+		api.POST("/routing-feedback", h.SaveRoutingFeedback)
 	}
 
 	return router

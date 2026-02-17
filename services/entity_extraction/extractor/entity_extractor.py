@@ -237,8 +237,8 @@ class EntityExtractor:
         Ищет паттерны типа "меня зовут Иван", "я Петр Сидоров"
         """
         patterns = [
-            r'(?:меня зовут|я|это)\s+([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){0,2})',
-            r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)',  # Имя Фамилия
+            r'(?:меня\s+зовут|зовут|я|это)\s+([А-ЯЁ][а-яё]+(?:[\s,]+[А-ЯЁ][а-яё]+){0,2})',
+            r'\b([А-ЯЁ][а-яё]+(?:[\s,]+[А-ЯЁ][а-яё]+){1,2})\b',
         ]
         
         persons = []
@@ -246,13 +246,14 @@ class EntityExtractor:
         
         for pattern in patterns:
             for m in re.finditer(pattern, text):
-                name = m.group(1).strip()
+                name = re.sub(r'[\s,]+', ' ', m.group(1)).strip()
                 
                 # Фильтр: имя должно быть >= 2 слов или известное имя
-                if name in seen:
+                key = name.lower()
+                if key in seen:
                     continue
                 
-                if len(name.split()) >= 2 or self._is_common_name(name):
+                if self._is_likely_person_name(name):
                     start = max(0, m.start() - 30)
                     end = min(len(text), m.end() + 30)
                     context = text[start:end]
@@ -263,9 +264,30 @@ class EntityExtractor:
                         confidence=0.7,  # Ниже чем у NER
                         context=context
                     ))
-                    seen.add(name)
+                    seen.add(key)
         
         return persons
+
+    def _is_likely_person_name(self, value: str) -> bool:
+        words = [w.strip(".,;:!?\"'()") for w in value.split() if w.strip(".,;:!?\"'()")]
+        if not words:
+            return False
+        if len(words) > 3:
+            return False
+        if any(not re.match(r'^[А-ЯЁ][а-яё-]+$', w) for w in words):
+            return False
+
+        blacklist = {
+            "техническая", "поддержка", "компания", "компании", "номер",
+            "телефона", "вопрос", "курсы", "занятия", "паспорт", "здравствуйте",
+        }
+        if any(w.lower() in blacklist for w in words):
+            return False
+
+        if len(words) >= 2:
+            return True
+
+        return self._is_common_name(words[0])
     
     def _is_common_name(self, name: str) -> bool:
         """Проверка на распространенные имена"""
@@ -273,34 +295,48 @@ class EntityExtractor:
             "Александр", "Алексей", "Андрей", "Анна", "Борис", "Василий",
             "Виктор", "Владимир", "Дмитрий", "Евгений", "Елена", "Игорь",
             "Иван", "Ирина", "Константин", "Мария", "Михаил", "Наталья",
-            "Николай", "Ольга", "Павел", "Петр", "Сергей", "Татьяна"
+            "Николай", "Ольга", "Павел", "Петр", "Сергей", "Татьяна",
+            "Игнат", "Игнать"
         }
         return name in common_names
     
     def _extract_phones(self, text: str) -> List[ExtractedEntity]:
         """Извлечение телефонов (regex)"""
-        # Паттерн для российских номеров
-        pattern = r"""
-            (?:
-                \+?7\s?[\-]?
-                (?:\(\d{3}\)|\d{3})
-                \s?[\-]?\d{3}\s?[\-]?\d{2}\s?[\-]?\d{2}
-            )|
-            (?:
-                8\s?[\-]?
-                (?:\(\d{3}\)|\d{3})
-                \s?[\-]?\d{3}\s?[\-]?\d{2}\s?[\-]?\d{2}
-            )
-        """
+        # Паттерн для российских номеров (в т.ч. "диктовка по цифрам")
+        pattern = r'(?:\+?\d[\d\-\s\(\)]{8,26}\d)'
         phones = []
         seen = set()
+        phone_cues = re.compile(r'(номер|телефон|контакт)', re.IGNORECASE)
         
-        for m in re.finditer(pattern, text, re.VERBOSE):
-            phone = m.group(0)
-            # Нормализуем (убираем пробелы, скобки)
-            normalized = re.sub(r"[\s\-\(\)]", "", phone)
+        for m in re.finditer(pattern, text):
+            raw_phone = m.group(0).strip()
+            digits = re.sub(r"\D", "", raw_phone)
+            if len(digits) < 10 or len(digits) > 12:
+                continue
+
+            # Нормализуем к +7XXXXXXXXXX когда возможно
+            normalized = digits
+            if len(digits) == 10:
+                normalized = "7" + digits
+            elif len(digits) == 11 and digits.startswith("8"):
+                normalized = "7" + digits[1:]
+            elif len(digits) == 11 and digits.startswith("7"):
+                normalized = digits
+            elif len(digits) == 12 and digits.startswith("007"):
+                normalized = digits[2:]
+            elif len(digits) == 12 and digits.startswith("7"):
+                normalized = digits[:11]
             
+            if len(normalized) != 11 or not normalized.startswith("7"):
+                continue
+
             if normalized in seen:
+                continue
+
+            left_context = text[max(0, m.start() - 25):m.start()]
+            has_cue = bool(phone_cues.search(left_context))
+            has_separators = bool(re.search(r'[\s\-\(\)]', raw_phone))
+            if not has_cue and not has_separators:
                 continue
             
             start = max(0, m.start() - 30)
@@ -309,8 +345,8 @@ class EntityExtractor:
             
             phones.append(ExtractedEntity(
                 type="phone",
-                value=normalized,
-                confidence=0.95,
+                value=f"+{normalized}",
+                confidence=0.95 if has_cue else 0.88,
                 context=context
             ))
             seen.add(normalized)
@@ -386,8 +422,8 @@ class EntityExtractor:
     def _extract_account_ids(self, text: str) -> List[ExtractedEntity]:
         """Извлечение ID аккаунтов"""
         patterns = [
-            r'(?:аккаунт|account|лицевой счет)[:\s№#]*([A-ZА-Я0-9\-]{4,15})',
-            r'(?:ID|ид)[:\s№#]*([A-ZА-Я0-9\-]{4,15})',
+            r'(?:\bаккаунт\b|\baccount\b|лицевой\s+счет)\s*[:\s№#-]*\s*([A-ZА-Я0-9\-]{4,15})',
+            r'(?:\bID\b|\bидентификатор\b|\bид\b)\s*[:\s№#-]*\s*([A-ZА-Я0-9\-]{4,15})',
         ]
         
         account_ids = []

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 import time
 import logging
+from collections import defaultdict
 
 import re
 
@@ -90,6 +91,15 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         q = self._embed([text])  # [1, H]
         sims = (q @ intent_emb.T).squeeze(0)  # [N]
 
+        # Rule-based boosts поверх эмбеддингов (особенно полезно для ASR-шумов)
+        rule_boosts = self._calculate_rule_boosts(prep, allowed_intents)
+        if rule_boosts:
+            idx_map = {intent_id: i for i, intent_id in enumerate(intent_ids)}
+            for intent_id, delta in rule_boosts.items():
+                idx = idx_map.get(intent_id)
+                if idx is not None:
+                    sims[idx] = sims[idx] + float(delta)
+
         # Топ-3 интента для анализа
         top3_indices = torch.topk(sims, k=min(3, len(intent_ids)))[1]
         top3_intents = [
@@ -117,6 +127,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             meta = allowed_intents.get(best_intent_id, {})
             priority: Priority = meta.get("priority", "normal")
             notes = f"rubert-embed sim={best_sim:.3f}"
+            if rule_boosts:
+                notes += f"; rule_boosts={{{', '.join(f'{k}:{v:.2f}' for k, v in rule_boosts.items())}}}"
 
         evidence = self._semantic_evidence(prep, allowed_intents.get(best_intent_id, {}).get("examples", []))
 
@@ -139,6 +151,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "similarity": round(best_sim, 3),
                 "text_length": len(text),
                 "processing_time_ms": round(processing_time_ms, 2),
+                "rule_boosts": rule_boosts,
             }
         )
 
@@ -158,6 +171,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "prep_meta": prep.meta,
                 "lemmas_n": len(lemmas_for_rules),
                 "text_length": len(text),
+                "rule_boosts": rule_boosts,
             },
         )
 
@@ -181,6 +195,44 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         
         # Соединяем с разделителем
         return start_text + "\n[...]\n" + end_text
+
+    def _calculate_rule_boosts(self, prep, allowed_intents: Dict[str, Dict]) -> Dict[str, float]:
+        """
+        Легкий rule-based слой для ключевых слов:
+        - помогает не проваливаться в misc.triage на зашумленной транскрипции;
+        - дает небольшой приоритет профильным интентам при явных маркерах.
+        """
+        boosts: Dict[str, float] = defaultdict(float)
+        text = (prep.canonical_text or "").lower()
+        lemmas = [str(x).lower() for x in (prep.lemmas or [])]
+        tokens = [str(x).lower() for x in (prep.tokens or [])]
+        bag = lemmas + tokens
+
+        for intent_id, meta in allowed_intents.items():
+            keywords = meta.get("keywords") or []
+            hit_count = 0
+            for kw in keywords:
+                key = str(kw).strip().lower()
+                if not key:
+                    continue
+                if " " in key:
+                    if key in text:
+                        hit_count += 1
+                    continue
+                if any(t.startswith(key) for t in bag):
+                    hit_count += 1
+                elif re.search(rf"\b{re.escape(key)}\w*", text):
+                    hit_count += 1
+
+            if hit_count > 0:
+                boosts[intent_id] += min(0.34, 0.11 * hit_count)
+
+        # Если нашли явные профильные маркеры — чуть штрафуем triage.
+        non_triage_score = sum(v for k, v in boosts.items() if k != "misc.triage")
+        if non_triage_score >= 0.11 and "misc.triage" in allowed_intents:
+            boosts["misc.triage"] -= min(0.22, 0.5 * non_triage_score)
+
+        return dict(boosts)
 
     def _calculate_confidence(self, sims: torch.Tensor, best_idx: int) -> float:
         """

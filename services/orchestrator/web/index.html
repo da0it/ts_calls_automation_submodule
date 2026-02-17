@@ -368,6 +368,16 @@
       display: none;
     }
 
+    .help-note {
+      margin-top: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 9px;
+      background: #f9fbff;
+    }
+
     .banner.show { display: block; }
     .banner.ok { background: #e9f9ef; border: 1px solid #bfe8cd; color: #0f7f4f; }
     .banner.error { background: #fdeeee; border: 1px solid #f1c8c8; color: #9f2e2e; }
@@ -435,6 +445,16 @@
   <script>
     const STORAGE_KEY = 'ts_calls_review_state_v1';
     const PRIORITY_PRESETS = ['low', 'medium', 'high', 'critical'];
+    const ERROR_TYPE_PRESETS = [
+      { value: 'none', label: 'No error (AI correct)' },
+      { value: 'wrong_intent', label: 'Wrong intent' },
+      { value: 'wrong_group', label: 'Wrong group' },
+      { value: 'wrong_priority', label: 'Wrong priority' },
+      { value: 'partial_transcript', label: 'Transcript is partial/incorrect' },
+      { value: 'low_confidence', label: 'Low confidence classification' },
+      { value: 'missing_context', label: 'Missing context in call' },
+      { value: 'other', label: 'Other' }
+    ];
 
     const FALLBACK_CATALOG = {
       groups: [
@@ -498,7 +518,7 @@
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw);
-        state.calls = Array.isArray(parsed.calls) ? parsed.calls : [];
+        state.calls = Array.isArray(parsed.calls) ? parsed.calls.map(normalizeStoredCall) : [];
         state.selectedCallId = parsed.selectedCallId || (state.calls[0] && state.calls[0].id) || null;
       } catch (_err) {
         state.calls = [];
@@ -588,6 +608,7 @@
           intentId: suggestedIntentId,
           priority: normalizePriority(routing.priority || defaultPriority),
           group: routing.suggested_group || defaultGroup,
+          errorType: 'none',
           comment: ''
         },
         aiSuggestion: {
@@ -719,10 +740,25 @@
                 </datalist>
               </div>
               <div class="row">
+                <label>AI error type</label>
+                <select id="review-error-type">
+                  ${ERROR_TYPE_PRESETS.map((item) => {
+                    const selected = item.value === (call.review.errorType || 'none') ? 'selected' : '';
+                    return `<option value="${escapeAttr(item.value)}" ${selected}>${escapeHtml(item.label)}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+              <div class="row">
                 <label>Reviewer comment</label>
                 <textarea id="review-comment">${escapeHtml(call.review.comment || '')}</textarea>
               </div>
             </div>
+          </div>
+          <div class="help-note">
+            <strong>Buttons:</strong>
+            Accept AI = copy AI suggestion into final fields.
+            Reject AI = mark decision as rejected and keep your manual corrections.
+            Save Decision = persist decision and send feedback for model improvement.
           </div>
         </section>
       `;
@@ -869,8 +905,9 @@
       const intentInput = document.getElementById('review-intent');
       const priorityInput = document.getElementById('review-priority');
       const groupInput = document.getElementById('review-group');
+      const errorTypeInput = document.getElementById('review-error-type');
       const commentInput = document.getElementById('review-comment');
-      if (!intentInput || !intentPreset || !priorityInput || !groupInput || !commentInput) return;
+      if (!intentInput || !intentPreset || !priorityInput || !groupInput || !errorTypeInput || !commentInput) return;
 
       intentPreset.addEventListener('change', () => {
         const selected = getIntentMeta(intentPreset.value);
@@ -899,6 +936,11 @@
         call.review.group = groupInput.value.trim();
         persist();
         renderCallsList();
+      });
+
+      errorTypeInput.addEventListener('change', () => {
+        call.review.errorType = errorTypeInput.value;
+        persist();
       });
 
       commentInput.addEventListener('input', () => {
@@ -1036,6 +1078,9 @@
         call.review.intentId = call.aiSuggestion.intentId || call.review.intentId;
         call.review.priority = call.aiSuggestion.priority || call.review.priority;
         call.review.group = call.aiSuggestion.group || call.review.group;
+        call.review.errorType = 'none';
+      } else if (!call.review.errorType || call.review.errorType === 'none') {
+        call.review.errorType = 'wrong_intent';
       }
 
       call.review.decision = decision;
@@ -1044,7 +1089,7 @@
       setBanner('Decision set to "' + decision + '".', 'ok');
     }
 
-    function saveDecision() {
+    async function saveDecision() {
       const call = getSelectedCall();
       if (!call) return;
 
@@ -1058,8 +1103,30 @@
       }
 
       persist();
-      render();
-      setBanner('Decision saved for selected call.', 'ok');
+      try {
+        const feedbackPayload = makeFeedbackPayload(call);
+        const feedbackResponse = await apiJson('/api/v1/routing-feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(feedbackPayload)
+        });
+        call.lastFeedback = feedbackResponse;
+        persist();
+        render();
+
+        const autoLearnApplied = Boolean(feedbackResponse && feedbackResponse.auto_learn_applied);
+        const autoLearnMessage = feedbackResponse && feedbackResponse.auto_learn_message
+          ? ' ' + feedbackResponse.auto_learn_message
+          : '';
+        if (autoLearnApplied) {
+          setBanner('Decision saved. Auto-learning applied.' + autoLearnMessage, 'ok');
+        } else {
+          setBanner('Decision saved.' + autoLearnMessage, 'ok');
+        }
+      } catch (err) {
+        render();
+        setBanner('Saved locally, but feedback API failed: ' + String(err.message || err), 'error');
+      }
     }
 
     function clearAllCalls() {
@@ -1105,12 +1172,70 @@
         ...base,
         reviewer_routing: {
           decision: call.review.decision,
+          error_type: call.review.errorType || 'none',
           final_intent_id: call.review.intentId,
           final_priority: call.review.priority,
           final_group: call.review.group,
           comment: call.review.comment || ''
         }
       };
+    }
+
+    function makeFeedbackPayload(call) {
+      const segments = (call.transcript && Array.isArray(call.transcript.segments)) ? call.transcript.segments : [];
+      return {
+        call_id: call.callId || '',
+        source_filename: call.sourceFilename || '',
+        decision: call.review.decision || 'accepted',
+        error_type: call.review.errorType || (call.review.decision === 'accepted' ? 'none' : 'other'),
+        comment: call.review.comment || '',
+        transcript_text: segmentsToText(segments, 8000),
+        training_sample: segmentsToText(segments, 280),
+        ai: {
+          intent_id: call.aiSuggestion.intentId || '',
+          confidence: Number(call.aiSuggestion.confidence || 0),
+          priority: call.aiSuggestion.priority || '',
+          group: call.aiSuggestion.group || ''
+        },
+        final: {
+          intent_id: call.review.intentId || '',
+          priority: call.review.priority || '',
+          group: call.review.group || ''
+        }
+      };
+    }
+
+    function segmentsToText(segments, maxChars) {
+      if (!Array.isArray(segments) || segments.length === 0) return '';
+      const parts = [];
+      for (const segment of segments) {
+        const text = String(segment && segment.text || '').trim();
+        if (text) parts.push(text);
+      }
+      const joined = parts.join(' ');
+      return maxChars > 0 ? joined.slice(0, maxChars) : joined;
+    }
+
+    function normalizeStoredCall(call) {
+      if (!call || typeof call !== 'object') return call;
+      if (!call.review || typeof call.review !== 'object') {
+        call.review = {
+          decision: 'pending',
+          intentId: 'misc.triage',
+          priority: 'medium',
+          group: '',
+          errorType: 'none',
+          comment: ''
+        };
+        return call;
+      }
+      call.review.errorType = call.review.errorType || 'none';
+      if (!call.review.decision) call.review.decision = 'pending';
+      if (!call.review.priority) call.review.priority = 'medium';
+      if (!call.review.intentId) call.review.intentId = 'misc.triage';
+      if (!call.review.group) call.review.group = '';
+      if (typeof call.review.comment !== 'string') call.review.comment = '';
+      return call;
     }
 
     function getSelectedCall() {
