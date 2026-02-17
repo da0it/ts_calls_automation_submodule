@@ -57,42 +57,24 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _default_whisper_venv_python() -> str:
-    home = os.path.expanduser("~/whisper-diarization")
-    candidates = [
-        os.path.join(home, ".venv", "bin", "python"),
-        os.path.join(home, "whisper_venv", "bin", "python"),
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return candidates[0]
-
-
 class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
-    """gRPC сервис для транскрибации с использованием whisper-diarization"""
+    """gRPC сервис для транскрибации на WhisperX."""
     
     def __init__(self):
         logger.info("Initializing TranscriptionServicer")
-        # Пути к whisper-diarization из переменных окружения или по умолчанию
+        # Путь нужен только для whisperx+nemo diarization backend.
         self.whisper_repo_dir = os.getenv(
             "WHISPER_REPO_DIR", 
             os.path.expanduser("~/whisper-diarization")
         )
-        self.whisper_venv_python = os.getenv(
-            "WHISPER_VENV_PYTHON",
-            _default_whisper_venv_python()
-        )
-        logger.info(f"Whisper repo: {self.whisper_repo_dir}")
-        logger.info(f"Whisper venv: {self.whisper_venv_python}")
+        logger.info(f"WhisperX NeMo repo: {self.whisper_repo_dir}")
 
         self._maybe_warmup_whisperx()
 
     def _maybe_warmup_whisperx(self) -> None:
-        backend = os.getenv("ASR_BACKEND", "faster").strip().lower()
         preload = _env_bool("WHISPERX_PRELOAD", False)
         persistent = _env_bool("WHISPERX_PERSISTENT", True)
-        if backend != "whisperx" or not preload or not persistent:
+        if not preload or not persistent:
             return
         if warmup_whisperx_runtime is None:
             logger.warning("WHISPERX_PRELOAD=1 but warmup_whisperx_runtime import failed.")
@@ -102,7 +84,7 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
             logger.info("WhisperX preload enabled: warming up persistent runtime...")
             warmup_whisperx_runtime(
                 model=os.getenv("WHISPERX_MODEL", "large-v3"),
-                language=os.getenv("WHISPERX_LANGUAGE", os.getenv("WHISPER_LANGUAGE", "ru")),
+                language=os.getenv("WHISPERX_LANGUAGE", "ru"),
                 device=os.getenv("WHISPERX_DEVICE", "cpu"),
                 compute_type=os.getenv("WHISPERX_COMPUTE_TYPE", "int8"),
                 vad_method=os.getenv("WHISPERX_VAD_METHOD", "silero").strip().lower(),
@@ -155,9 +137,7 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
             # Вызываем функцию транскрибации
             result = transcribe_with_roles(
                 audio_path=temp_file,
-                no_stem=_env_bool("WHISPER_NO_STEM", True),
                 whisper_repo_dir=self.whisper_repo_dir,
-                whisper_venv_python=self.whisper_venv_python
             )
             
             # Создаем ответ
@@ -180,7 +160,7 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
             
             # Добавляем метаданные
             metadata = {
-                "mode": result.get("mode", "whisper-diarization"),
+                "mode": result.get("mode", "whisperx"),
                 "input": result.get("input", ""),
                 "note": result.get("note", ""),
                 "processing_time_seconds": str(round(time.time() - start_time, 2))
@@ -233,7 +213,7 @@ def serve():
     logger.info(f"Starting transcription server on {server_address}")
     logger.info(f"Max workers: {max_workers}")
     logger.info(
-        "Whisper repo: %s",
+        "WhisperX NeMo repo: %s",
         os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
     )
     

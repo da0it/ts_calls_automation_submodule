@@ -6,7 +6,6 @@ ARG WHISPER_DIARIZATION_REF=main
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     WHISPER_REPO_DIR=/opt/whisper-diarization \
-    WHISPER_VENV_PYTHON=/opt/whisper-diarization/whisper_venv/bin/python \
     WHISPERX_VENV_PYTHON=/opt/whisper-diarization/whisper_venv/bin/python \
     FFMPEG_BIN=ffmpeg \
     FFPROBE_BIN=ffprobe

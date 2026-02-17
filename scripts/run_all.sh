@@ -12,7 +12,10 @@ declare -a SERVICE_NAMES=()
 declare -a SERVICE_PIDS=()
 CLEANED_UP=0
 
-if [[ -x "$HOME/whisper-diarization/whisper_venv/bin/python" ]]; then
+if [[ -x "$HOME/whisperx_venv/bin/python" ]]; then
+  DEFAULT_TRANSCRIPTION_PYTHON="$HOME/whisperx_venv/bin/python"
+elif [[ -x "$HOME/whisper-diarization/whisper_venv/bin/python" ]]; then
+  # Backward-compatible fallback for existing local setups.
   DEFAULT_TRANSCRIPTION_PYTHON="$HOME/whisper-diarization/whisper_venv/bin/python"
 elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
   DEFAULT_TRANSCRIPTION_PYTHON="$ROOT_DIR/.venv/bin/python"

@@ -3,8 +3,9 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+WHISPERX_VENV_DIR="${WHISPERX_VENV_DIR:-$HOME/whisperx_venv}"
 WHISPER_REPO_DIR="${WHISPER_REPO_DIR:-$HOME/whisper-diarization}"
-INSTALL_WHISPERX="${INSTALL_WHISPERX:-1}"
+INSTALL_NEMO_BACKEND="${INSTALL_NEMO_BACKEND:-0}"
 
 log() {
   echo "[$(date '+%H:%M:%S')] $*"
@@ -45,21 +46,19 @@ main() {
   ensure_venv "$ROOT_DIR/services/router/venv"
   pip_install "$ROOT_DIR/services/router/venv/bin/pip" -r "$ROOT_DIR/services/router/requirements.txt"
 
-  if [[ ! -d "$WHISPER_REPO_DIR/.git" ]]; then
-    log "Cloning whisper-diarization into $WHISPER_REPO_DIR ..."
-    git clone https://github.com/MahmoudAshraf97/whisper-diarization "$WHISPER_REPO_DIR"
-  else
-    log "whisper-diarization repo exists: $WHISPER_REPO_DIR"
-  fi
+  log "Preparing Python venv for transcription (WhisperX)..."
+  ensure_venv "$WHISPERX_VENV_DIR"
+  pip_install "$WHISPERX_VENV_DIR/bin/pip" whisperx grpcio protobuf python-dotenv
 
-  log "Preparing whisper-diarization venv..."
-  ensure_venv "$WHISPER_REPO_DIR/whisper_venv"
-  pip_install "$WHISPER_REPO_DIR/whisper_venv/bin/pip" -r "$WHISPER_REPO_DIR/requirements.txt"
-  pip_install "$WHISPER_REPO_DIR/whisper_venv/bin/pip" grpcio protobuf python-dotenv
-
-  if [[ "$INSTALL_WHISPERX" == "1" ]]; then
-    log "Installing whisperx into whisper venv..."
-    "$WHISPER_REPO_DIR/whisper_venv/bin/pip" install whisperx
+  if [[ "$INSTALL_NEMO_BACKEND" == "1" ]]; then
+    if [[ ! -d "$WHISPER_REPO_DIR/.git" ]]; then
+      log "Cloning whisper-diarization into $WHISPER_REPO_DIR (for NeMo diarization backend)..."
+      git clone https://github.com/MahmoudAshraf97/whisper-diarization "$WHISPER_REPO_DIR"
+    else
+      log "whisper-diarization repo exists: $WHISPER_REPO_DIR"
+    fi
+    log "Installing NeMo backend requirements into WhisperX venv..."
+    pip_install "$WHISPERX_VENV_DIR/bin/pip" -r "$WHISPER_REPO_DIR/requirements.txt"
   fi
 
   log "Downloading Go modules..."

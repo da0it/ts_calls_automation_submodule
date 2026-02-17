@@ -293,11 +293,19 @@ def main() -> None:
             if not args.hf_token:
                 raise RuntimeError("HF token is required for whisperx diarization")
             from whisperx.diarize import DiarizationPipeline
-            diarize_model = DiarizationPipeline(
-                model_name=args.diarize_model,
-                token=args.hf_token,
-                device=args.device,
-            )
+            try:
+                diarize_model = DiarizationPipeline(
+                    model_name=args.diarize_model,
+                    token=args.hf_token,
+                    device=args.device,
+                )
+            except TypeError:
+                # Newer/older whisperx versions differ in auth argument name.
+                diarize_model = DiarizationPipeline(
+                    model_name=args.diarize_model,
+                    use_auth_token=args.hf_token,
+                    device=args.device,
+                )
             diarize_segments = diarize_model(audio)
             result = whisperx.assign_word_speakers(diarize_segments, result)
 

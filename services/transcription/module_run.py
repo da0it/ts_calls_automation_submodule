@@ -8,44 +8,20 @@ import os
 from transcribe_logic.pipeline import transcribe_with_roles
 
 
-def _default_whisper_venv_python(repo_dir: str) -> str:
-    candidates = [
-        os.path.join(repo_dir, ".venv", "bin", "python"),
-        os.path.join(repo_dir, "whisper_venv", "bin", "python"),
-    ]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return candidates[0]
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", help="mp3/ogg/wav")
     ap.add_argument("--out", default="", help="output json (default stdout)")
-    ap.add_argument("--no-stem", action="store_true", help="Disable source separation in whisper-diarization")
     ap.add_argument(
         "--whisper-repo-dir",
         default=os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
-        help="Path to whisper-diarization repo",
-    )
-    ap.add_argument(
-        "--whisper-venv-python",
-        default=os.getenv(
-            "WHISPER_VENV_PYTHON",
-            _default_whisper_venv_python(
-                os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization"))
-            ),
-        ),
-        help="Path to python inside whisper-diarization venv",
+        help="Path to whisper-diarization repo (needed only for WhisperX + NeMo diarization backend)",
     )
     args = ap.parse_args()
 
     res = transcribe_with_roles(
         args.audio,
-        no_stem=args.no_stem,
         whisper_repo_dir=args.whisper_repo_dir,
-        whisper_venv_python=args.whisper_venv_python,
     )
 
     s = json.dumps(res, ensure_ascii=False, indent=2)

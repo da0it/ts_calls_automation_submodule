@@ -1,20 +1,15 @@
 # transcribe_module
 
-## ASR backend switch
+## Backend
 
-Backend is selected via `ASR_BACKEND` in `/Users/dmitrii/ts_calls_automation_submodule/configs/transcription.env`:
-
-- `ASR_BACKEND=faster` - current whisper-diarization path (`diarize.py`)
-- `ASR_BACKEND=whisperx` - whisperx transcribe + align + diarize path
-
-After changing backend, restart services.
+Only WhisperX is supported in this service.
 
 ## WhisperX requirements
 
 `WHISPERX_VENV_PYTHON` must point to a python with installed `whisperx`:
 
 ```bash
-/Users/dmitrii/whisper-diarization/whisper_venv/bin/pip install whisperx
+/Users/dmitrii/whisperx_venv/bin/pip install whisperx
 ```
 
 Select diarization implementation for whisperx with:

@@ -269,6 +269,33 @@
       margin-top: 8px;
     }
 
+    .toolbar.hidden { display: none; }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .tab-btn {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 8px 12px;
+      font: 600 13px/1.1 'IBM Plex Sans', sans-serif;
+      cursor: pointer;
+      transition: background .12s ease, border-color .12s ease, transform .12s ease;
+    }
+
+    .tab-btn:hover { transform: translateY(-1px); }
+    .tab-btn.active {
+      border-color: #b4c9ee;
+      background: #eef5ff;
+      color: var(--accent-2);
+    }
+
     .segments {
       max-height: 320px;
       overflow: auto;
@@ -360,6 +387,10 @@
       border-radius: 8px;
     }
 
+    .collapsible-form.hidden {
+      display: none;
+    }
+
     .banner {
       font-size: 13px;
       border-radius: 10px;
@@ -427,8 +458,11 @@
 
       <main class="panel">
         <div class="panel-head">
-          <h2 class="panel-title">Call Review</h2>
-          <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="Workspace tabs">
+            <button id="tab-review-btn" class="tab-btn active" type="button" role="tab" aria-selected="true">Call Review</button>
+            <button id="tab-settings-btn" class="tab-btn" type="button" role="tab" aria-selected="false">Settings</button>
+          </div>
+          <div id="review-toolbar" class="toolbar">
             <button id="accept-btn" class="btn btn-ok" type="button">Accept AI</button>
             <button id="reject-btn" class="btn btn-bad" type="button">Reject AI</button>
             <button id="save-btn" class="btn btn-primary" type="button">Save Decision</button>
@@ -437,6 +471,7 @@
           </div>
         </div>
 
+        <div id="local-banner" class="banner"></div>
         <div class="workspace" id="workspace"></div>
       </main>
     </section>
@@ -479,7 +514,12 @@
       selectedCallId: null,
       processing: false,
       banner: null,
-      catalog: cloneCatalog(FALLBACK_CATALOG)
+      catalog: cloneCatalog(FALLBACK_CATALOG),
+      routingModelStatus: null,
+      routingModelBusy: false,
+      activeTab: 'review',
+      showAddGroupForm: false,
+      showAddIntentForm: false
     };
 
     const el = {
@@ -493,13 +533,17 @@
       rejectBtn: document.getElementById('reject-btn'),
       saveBtn: document.getElementById('save-btn'),
       exportBtn: document.getElementById('export-btn'),
-      copyBtn: document.getElementById('copy-btn')
+      copyBtn: document.getElementById('copy-btn'),
+      tabReviewBtn: document.getElementById('tab-review-btn'),
+      tabSettingsBtn: document.getElementById('tab-settings-btn'),
+      reviewToolbar: document.getElementById('review-toolbar')
     };
 
     async function init() {
       load();
       bindEvents();
       await loadRoutingCatalog(true);
+      await loadRoutingModelStatus(true);
       render();
     }
 
@@ -511,6 +555,14 @@
       el.saveBtn.addEventListener('click', () => saveDecision());
       el.exportBtn.addEventListener('click', exportCurrentCall);
       el.copyBtn.addEventListener('click', copyCurrentCall);
+      el.tabReviewBtn.addEventListener('click', () => setActiveTab('review'));
+      el.tabSettingsBtn.addEventListener('click', () => setActiveTab('settings'));
+    }
+
+    function setActiveTab(tab) {
+      if (tab !== 'review' && tab !== 'settings') return;
+      state.activeTab = tab;
+      render();
     }
 
     function load() {
@@ -545,6 +597,22 @@
         state.catalog = cloneCatalog(FALLBACK_CATALOG);
         if (!silent) {
           setBanner('Routing config load failed. Using local fallback presets.', 'error');
+        }
+      }
+    }
+
+    async function loadRoutingModelStatus(silent) {
+      try {
+        const response = await fetch('/api/v1/routing-model/status');
+        const payload = await safeJson(response);
+        if (!response.ok) {
+          throw new Error(payload && payload.error ? payload.error : 'Failed to load routing model status');
+        }
+        state.routingModelStatus = payload;
+      } catch (err) {
+        state.routingModelStatus = null;
+        if (!silent) {
+          setBanner('Routing model status request failed.', 'error');
         }
       }
     }
@@ -624,6 +692,16 @@
       renderCallsList();
       renderWorkspace();
       renderActions();
+      renderTabs();
+    }
+
+    function renderTabs() {
+      const isReview = state.activeTab === 'review';
+      el.tabReviewBtn.classList.toggle('active', isReview);
+      el.tabSettingsBtn.classList.toggle('active', !isReview);
+      el.tabReviewBtn.setAttribute('aria-selected', isReview ? 'true' : 'false');
+      el.tabSettingsBtn.setAttribute('aria-selected', isReview ? 'false' : 'true');
+      el.reviewToolbar.classList.toggle('hidden', !isReview);
     }
 
     function renderCallsList() {
@@ -663,12 +741,16 @@
     }
 
     function renderWorkspace() {
-      const call = getSelectedCall();
-      const catalogBlock = renderCatalogBlock();
-
-      if (!call) {
-        el.workspace.innerHTML = catalogBlock + '<section class="card"><div class="empty">Select a call from the list to review routing details.</div></section>';
+      if (state.activeTab === 'settings') {
+        el.workspace.innerHTML = renderCatalogBlock();
         bindCatalogInputs();
+        renderBanner();
+        return;
+      }
+
+      const call = getSelectedCall();
+      if (!call) {
+        el.workspace.innerHTML = '<section class="card"><div class="empty">Select a call from the list to review routing details.</div></section>';
         renderBanner();
         return;
       }
@@ -790,23 +872,45 @@
         </section>
       `;
 
-      el.workspace.innerHTML = metaBlock + routingBlock + transcriptBlock + catalogBlock + rawBlock;
+      el.workspace.innerHTML = metaBlock + routingBlock + transcriptBlock + rawBlock;
 
       bindReviewInputs();
-      bindCatalogInputs();
       renderBanner();
     }
 
     function renderCatalogBlock() {
       const groups = getGroupOptions();
       const intents = getIntentOptions();
+      const modelStatus = state.routingModelStatus || {};
+      const tuned = modelStatus.tuned_model || {};
+      const modelLabel = tuned.active ? 'tuned model active' : 'baseline model active';
+      const modelReason = tuned.reason || 'n/a';
+      const modelVersion = tuned.version_id || '-';
+      const modelTrainedAt = tuned.trained_at || '-';
+      const trainReport = tuned.last_train_report || {};
+      const trainSamples = trainReport.dataset && trainReport.dataset.samples_total ? trainReport.dataset.samples_total : '-';
+      const trainF1 = trainReport.metrics && trainReport.metrics.val && typeof trainReport.metrics.val.macro_f1 === 'number'
+        ? trainReport.metrics.val.macro_f1.toFixed(3)
+        : '-';
+      const trainBusy = Boolean(modelStatus.training_in_progress || state.routingModelBusy);
+      const groupFormClass = state.showAddGroupForm ? 'collapsible-form' : 'collapsible-form hidden';
+      const intentFormClass = state.showAddIntentForm ? 'collapsible-form' : 'collapsible-form hidden';
       return `
         <section class="card">
           <h3>Routing Catalog Management</h3>
           <div class="toolbar">
             <button id="refresh-catalog-btn" class="btn btn-ghost btn-mini" type="button">Refresh Catalog</button>
+            <button id="refresh-routing-model-btn" class="btn btn-ghost btn-mini" type="button">Refresh Model Status</button>
+            <button id="train-routing-model-btn" class="btn btn-primary btn-mini" type="button" ${trainBusy ? 'disabled' : ''}>Train Routing Model</button>
           </div>
-          <div id="local-banner" class="banner"></div>
+          <div class="help-note">
+            <strong>Routing model:</strong> ${escapeHtml(modelLabel)}<br />
+            <strong>Status reason:</strong> ${escapeHtml(modelReason)}<br />
+            <strong>Version:</strong> ${escapeHtml(modelVersion)}<br />
+            <strong>Trained at:</strong> ${escapeHtml(modelTrainedAt)}<br />
+            <strong>Last train val macro-F1:</strong> ${escapeHtml(String(trainF1))}<br />
+            <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}
+          </div>
           <div class="catalog-grid">
             <div>
               <div class="row">
@@ -823,7 +927,8 @@
                   `).join('')}
                 </div>
               </div>
-              <form id="add-group-form">
+              <button id="toggle-add-group-form-btn" class="btn btn-primary btn-mini" type="button">${state.showAddGroupForm ? 'Hide Group Form' : 'Add Group'}</button>
+              <form id="add-group-form" class="${groupFormClass}">
                 <div class="row">
                   <label>New group id</label>
                   <input id="add-group-id" placeholder="marketing_conferences" />
@@ -836,7 +941,10 @@
                   <label>Description</label>
                   <input id="add-group-description" placeholder="Optional description" />
                 </div>
-                <button class="btn btn-primary btn-mini" type="submit">Add Group</button>
+                <div class="toolbar">
+                  <button class="btn btn-primary btn-mini" type="submit">Create Group</button>
+                  <button id="cancel-add-group-form-btn" class="btn btn-ghost btn-mini" type="button">Cancel</button>
+                </div>
               </form>
             </div>
             <div>
@@ -856,7 +964,8 @@
                   `).join('')}
                 </div>
               </div>
-              <form id="add-intent-form">
+              <button id="toggle-add-intent-form-btn" class="btn btn-primary btn-mini" type="button">${state.showAddIntentForm ? 'Hide Intent Form' : 'Add Intent'}</button>
+              <form id="add-intent-form" class="${intentFormClass}">
                 <div class="row">
                   <label>New intent id</label>
                   <input id="add-intent-id" placeholder="conference.invite_company" />
@@ -889,7 +998,10 @@
                   <label>Tags (comma-separated)</label>
                   <input id="add-intent-tags" placeholder="conference, marketing" />
                 </div>
-                <button class="btn btn-primary btn-mini" type="submit">Add Intent</button>
+                <div class="toolbar">
+                  <button class="btn btn-primary btn-mini" type="submit">Create Intent</button>
+                  <button id="cancel-add-intent-form-btn" class="btn btn-ghost btn-mini" type="button">Cancel</button>
+                </div>
               </form>
             </div>
           </div>
@@ -950,12 +1062,88 @@
     }
 
     function bindCatalogInputs() {
+      const toggleGroupFormBtn = document.getElementById('toggle-add-group-form-btn');
+      if (toggleGroupFormBtn) {
+        toggleGroupFormBtn.addEventListener('click', () => {
+          state.showAddGroupForm = !state.showAddGroupForm;
+          render();
+        });
+      }
+
+      const toggleIntentFormBtn = document.getElementById('toggle-add-intent-form-btn');
+      if (toggleIntentFormBtn) {
+        toggleIntentFormBtn.addEventListener('click', () => {
+          state.showAddIntentForm = !state.showAddIntentForm;
+          render();
+        });
+      }
+
+      const cancelAddGroupFormBtn = document.getElementById('cancel-add-group-form-btn');
+      if (cancelAddGroupFormBtn) {
+        cancelAddGroupFormBtn.addEventListener('click', () => {
+          state.showAddGroupForm = false;
+          render();
+        });
+      }
+
+      const cancelAddIntentFormBtn = document.getElementById('cancel-add-intent-form-btn');
+      if (cancelAddIntentFormBtn) {
+        cancelAddIntentFormBtn.addEventListener('click', () => {
+          state.showAddIntentForm = false;
+          render();
+        });
+      }
+
       const refreshBtn = document.getElementById('refresh-catalog-btn');
       if (refreshBtn) {
         refreshBtn.addEventListener('click', async () => {
           await loadRoutingCatalog(false);
           render();
           setBanner('Routing catalog refreshed from server.', 'ok');
+        });
+      }
+
+      const refreshModelBtn = document.getElementById('refresh-routing-model-btn');
+      if (refreshModelBtn) {
+        refreshModelBtn.addEventListener('click', async () => {
+          await loadRoutingModelStatus(false);
+          render();
+          setBanner('Routing model status refreshed.', 'ok');
+        });
+      }
+
+      const trainModelBtn = document.getElementById('train-routing-model-btn');
+      if (trainModelBtn) {
+        trainModelBtn.addEventListener('click', async () => {
+          if (!confirm('Start routing model training now? This may take several minutes on CPU.')) {
+            return;
+          }
+          state.routingModelBusy = true;
+          render();
+          setBanner('Routing model training started...', 'ok');
+          try {
+            const response = await apiJson('/api/v1/routing-model/train', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            if (response && response.status) {
+              state.routingModelStatus = response.status;
+            } else {
+              await loadRoutingModelStatus(true);
+            }
+            render();
+            const report = response && response.report ? response.report : null;
+            const f1 = report && report.metrics && report.metrics.val && typeof report.metrics.val.macro_f1 === 'number'
+              ? report.metrics.val.macro_f1.toFixed(3)
+              : 'n/a';
+            setBanner('Routing model training finished. val macro-F1=' + f1, 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          } finally {
+            state.routingModelBusy = false;
+            render();
+          }
         });
       }
 
@@ -978,6 +1166,7 @@
             });
             state.catalog = normalizeCatalog(catalog);
             addGroupForm.reset();
+            state.showAddGroupForm = false;
             render();
             setBanner('Routing group created.', 'ok');
           } catch (err) {
@@ -1025,6 +1214,7 @@
             });
             state.catalog = normalizeCatalog(catalog);
             addIntentForm.reset();
+            state.showAddIntentForm = false;
             render();
             setBanner('Routing intent created.', 'ok');
           } catch (err) {
@@ -1246,7 +1436,7 @@
       const disabled = state.processing;
       el.processBtn.disabled = disabled;
 
-      const hasCall = Boolean(getSelectedCall());
+      const hasCall = state.activeTab === 'review' && Boolean(getSelectedCall());
       el.acceptBtn.disabled = !hasCall || disabled;
       el.rejectBtn.disabled = !hasCall || disabled;
       el.saveBtn.disabled = !hasCall || disabled;
