@@ -4,6 +4,11 @@ import re
 
 from transcribe_logic.config import CFG
 
+ROLE_CALLER = "звонящий"
+ROLE_ANSWERER = "ответчик"
+ROLE_UNKNOWN = "не определено"
+_ALLOWED_ROLES = {ROLE_CALLER, ROLE_ANSWERER, ROLE_UNKNOWN}
+
 
 def _norm_text(s: str) -> str:
     s = (s or "").lower().strip()
@@ -20,13 +25,19 @@ def _count_hits(text: str, phrases: Tuple[str, ...]) -> int:
     return hits
 
 
+def _sanitize_role(role: str | None) -> str:
+    if role in _ALLOWED_ROLES:
+        return str(role)
+    return ROLE_UNKNOWN
+
+
 def infer_role_map_from_segments(
     segments: List[Dict[str, Any]],
     intro_window_sec: float | None = None,
 ) -> Dict[str, str]:
     """
     segments: [{"start","end","speaker","text", ...}, ...] (роль ещё не проставлена)
-    Возвращает mapping speaker->role: "ответчик"/"звонящий"/"спикер"/"ivr"
+    Возвращает mapping speaker->role: "ответчик"/"звонящий"/"не определено".
     """
     intro_window_sec = CFG.role.intro_window_sec if intro_window_sec is None else intro_window_sec
 
@@ -35,7 +46,7 @@ def infer_role_map_from_segments(
     if not speakers:
         return {}
     if len(speakers) == 1:
-        return {speakers[0]: "спикер"}
+        return {speakers[0]: ROLE_UNKNOWN}
 
     # Агрегируем статистики
     stats: Dict[str, Dict[str, float]] = {spk: {
@@ -72,19 +83,20 @@ def infer_role_map_from_segments(
         stats[spk]["id_hits"] += 1.0 if re.search(r"\b\d{5,}\b", text) else 0.0
         stats[spk]["question_hits"] += text.count("?")
 
-    # 1) Выделим возможный IVR: много ivr_hits и почти всё в начале
-    # (делаем мягко: если явно IVR — пометим)
+    # 1) Если явно IVR-like реплики, не пытаемся насильно относить к caller/answerer.
     role_map: Dict[str, str] = {}
+    forced_unknown = set()
     for spk in speakers:
         ivr_score = stats[spk]["ivr_hits"]
         if ivr_score >= 2 and stats[spk]["early"] > 0.0 and stats[spk]["total"] < 30.0:
-            role_map[spk] = "ivr"
+            role_map[spk] = ROLE_UNKNOWN
+            forced_unknown.add(spk)
 
-    # Кандидаты (не ivr)
-    cand = [spk for spk in speakers if role_map.get(spk) != "ivr"]
+    cand = [spk for spk in speakers if spk not in forced_unknown]
+    if not cand:
+        return role_map
     if len(cand) == 1:
-        # один реальный говорящий + ivr
-        role_map[cand[0]] = "спикер"
+        role_map[cand[0]] = ROLE_UNKNOWN
         return role_map
 
     # Нормировки
@@ -131,14 +143,16 @@ def infer_role_map_from_segments(
 
     if strong_caller:
         caller_spk = caller_scored[0][1]
-        role_map.setdefault(caller_spk, "звонящий")
+        role_map.setdefault(caller_spk, ROLE_CALLER)
         rest = [spk for spk in cand if spk != caller_spk]
         if rest:
             answerer_spk = max(rest, key=answerer_score)
-            role_map.setdefault(answerer_spk, "ответчик")
+            role_map.setdefault(answerer_spk, ROLE_ANSWERER)
             for spk in rest:
                 if spk != answerer_spk:
-                    role_map.setdefault(spk, "спикер")
+                    role_map.setdefault(spk, ROLE_UNKNOWN)
+        for spk in speakers:
+            role_map.setdefault(spk, ROLE_UNKNOWN)
         return role_map
 
     scored = sorted(((answerer_score(spk), spk) for spk in cand), reverse=True)
@@ -149,21 +163,27 @@ def infer_role_map_from_segments(
     confidence = best_score - second_score
 
     # 3) Назначаем роли
-    # Если не уверены — fallback: кто раньше начал говорить = ответчик
+    # Если не уверены — не гадаем, ставим "не определено".
     if confidence < CFG.role.min_confidence:
-        # при плохой уверенности предпочтём контекст звонящего/ответчика, а не "кто заговорил первым"
-        best_spk = max(cand, key=lambda spk: (stats[spk]["ans_hits"] - stats[spk]["call_hits"], -stats[spk]["first"]))
+        for spk in cand:
+            role_map.setdefault(spk, ROLE_UNKNOWN)
+        for spk in speakers:
+            role_map.setdefault(spk, ROLE_UNKNOWN)
+        return role_map
 
-    role_map.setdefault(best_spk, "ответчик")
+    role_map.setdefault(best_spk, ROLE_ANSWERER)
 
-    # “звонящий” = лучший по caller_score среди остальных (или просто другой)
+    # “звонящий” = лучший по caller_score среди остальных.
     others = [spk for spk in cand if spk != best_spk]
     if others:
         caller_spk = max(others, key=lambda spk: (stats[spk]["call_hits"], stats[spk]["total"]))
-        role_map.setdefault(caller_spk, "звонящий")
+        role_map.setdefault(caller_spk, ROLE_CALLER)
         for spk in others:
             if spk != caller_spk:
-                role_map.setdefault(spk, "спикер")
+                role_map.setdefault(spk, ROLE_UNKNOWN)
+
+    for spk in speakers:
+        role_map.setdefault(spk, ROLE_UNKNOWN)
 
     return role_map
 
@@ -193,25 +213,30 @@ def assign_roles_to_segments(
     speaker_role_map: Dict[str, str],
 ) -> Dict[str, str]:
     """
-    Назначает role в каждом сегменте с учетом speaker role map,
-    но допускает override на уровне конкретной реплики.
+    Назначает role в каждом сегменте с учетом speaker role map.
+    Роли ограничены: "звонящий"/"ответчик"/"не определено".
     Возвращает обновленный speaker->role map (по длительности сегментов).
     """
     per_speaker_dur: Dict[str, Dict[str, float]] = {}
 
     for seg in segments:
         spk = seg.get("speaker")
-        base_role = speaker_role_map.get(spk, "спикер")
+        base_role = _sanitize_role(speaker_role_map.get(spk))
         text = str(seg.get("text", "") or "")
         caller_score, answerer_score, ivr_score = _segment_role_scores(text)
 
         role = base_role
+        delta = caller_score - answerer_score
         if ivr_score >= 2.0:
-            role = "ivr"
-        elif caller_score - answerer_score >= 1.2:
-            role = "звонящий"
-        elif answerer_score - caller_score >= 1.2:
-            role = "ответчик"
+            role = ROLE_UNKNOWN
+        elif delta >= 1.2:
+            role = ROLE_CALLER
+        elif delta <= -1.2:
+            role = ROLE_ANSWERER
+        elif abs(delta) >= 0.5 and base_role != ROLE_UNKNOWN:
+            role = base_role
+        else:
+            role = ROLE_UNKNOWN
 
         seg["role"] = role
 
@@ -227,15 +252,15 @@ def assign_roles_to_segments(
     updated_map: Dict[str, str] = {}
     for spk, role_dur in per_speaker_dur.items():
         if not role_dur:
-            updated_map[spk] = speaker_role_map.get(spk, "спикер")
+            updated_map[spk] = _sanitize_role(speaker_role_map.get(spk))
             continue
         best_role = max(
             role_dur.items(),
-            key=lambda item: (item[1], 1 if item[0] == speaker_role_map.get(spk) else 0),
+            key=lambda item: (item[1], 1 if item[0] == _sanitize_role(speaker_role_map.get(spk)) else 0),
         )[0]
-        updated_map[spk] = best_role
+        updated_map[spk] = _sanitize_role(best_role)
 
     for spk, role in speaker_role_map.items():
-        updated_map.setdefault(spk, role)
+        updated_map.setdefault(spk, _sanitize_role(role))
 
     return updated_map

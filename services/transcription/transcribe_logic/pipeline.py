@@ -121,7 +121,7 @@ def transcribe_with_roles(
     """
     Пайплайн WhisperX:
       input audio -> mono wav 16k -> whisperx transcribe+align+diarization
-      -> infer roles (ответчик/звонящий/ivr/спикер) по таймингу + ключевым фразам
+      -> infer roles (ответчик/звонящий/не определено) по таймингу + ключевым фразам
     """
     if hf_token:
         # Поддерживаем прежний интерфейс вызова.
@@ -188,7 +188,7 @@ def transcribe_with_roles(
                 max_gap=float(os.getenv("WHISPERX_MERGE_GAP_SEC", "0.35")),
             )
 
-        # 5) роли по сегментам (тайминг + фразы; IVR может помечаться как 'ivr')
+        # 5) роли по сегментам (тайминг + фразы)
         role_map = infer_role_map_from_segments(segments)
         role_map = assign_roles_to_segments(segments, role_map)
 

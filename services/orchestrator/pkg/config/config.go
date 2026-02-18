@@ -27,6 +27,13 @@ type Config struct {
 	RouterAdminURL            string
 	RouterAdminToken          string
 	RouterAdminTimeoutSeconds int
+
+	// Auth / DB
+	DatabaseURL    string
+	JWTSecret      string
+	JWTExpiryHours int
+	AdminUsername   string
+	AdminPassword   string
 }
 
 func Load() *Config {
@@ -48,6 +55,16 @@ func Load() *Config {
 		RouterAdminURL:            getEnv("ROUTER_ADMIN_URL", "http://localhost:8082"),
 		RouterAdminToken:          getEnv("ROUTER_ADMIN_TOKEN", ""),
 		RouterAdminTimeoutSeconds: getEnvInt("ROUTER_ADMIN_TIMEOUT_SECONDS", 600),
+
+		DatabaseURL:    getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tickets?sslmode=disable"),
+		JWTSecret:      getEnv("JWT_SECRET", ""),
+		JWTExpiryHours: getEnvInt("JWT_EXPIRY_HOURS", 24),
+		AdminUsername:   getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:   getEnv("ADMIN_PASSWORD", ""),
+	}
+
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET is required")
 	}
 
 	log.Printf("Orchestrator config loaded:")
@@ -65,6 +82,9 @@ func Load() *Config {
 	log.Printf("  - Routing auto learn limit: %d", cfg.RoutingAutoLearnLimit)
 	log.Printf("  - Router admin URL: %s", cfg.RouterAdminURL)
 	log.Printf("  - Router admin timeout (sec): %d", cfg.RouterAdminTimeoutSeconds)
+	log.Printf("  - Database URL: %s", cfg.DatabaseURL)
+	log.Printf("  - JWT expiry hours: %d", cfg.JWTExpiryHours)
+	log.Printf("  - Admin username: %s", cfg.AdminUsername)
 
 	return cfg
 }

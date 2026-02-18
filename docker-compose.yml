@@ -46,6 +46,8 @@ services:
       TRANSCRIPTION_GRPC_PORT: 50051
       WHISPER_REPO_DIR: /opt/whisper-diarization
       WHISPERX_VENV_PYTHON: /opt/whisper-diarization/whisper_venv/bin/python
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
       FFMPEG_BIN: ffmpeg
       FFPROBE_BIN: ffprobe
     volumes:
@@ -86,6 +88,8 @@ services:
       ROUTER_TRAIN_LR: 0.01
       ROUTER_TRAIN_VAL_RATIO: 0.2
       ROUTER_TRAIN_SEED: 42
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     volumes:
       - huggingface_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
@@ -111,6 +115,9 @@ services:
     restart: unless-stopped
     env_file:
       - ./configs/entity.env
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     ports:
       - "5001:5001"
 
@@ -144,6 +151,7 @@ services:
     environment:
       GRPC_PORT: 50055
       HTTP_PORT: 8085
+      NOTIFICATION_CHANNELS: log
     ports:
       - "50055:50055"
 
@@ -169,7 +177,14 @@ services:
       ROUTING_AUTO_LEARN_LIMIT: "50"
       ROUTER_ADMIN_URL: http://router:8082
       ROUTER_ADMIN_TIMEOUT_SECONDS: "600"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/tickets?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32chars}
+      JWT_EXPIRY_HOURS: "24"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     depends_on:
+      postgres:
+        condition: service_healthy
       transcription:
         condition: service_healthy
       router:

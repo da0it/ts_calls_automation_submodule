@@ -77,6 +77,44 @@
       justify-content: flex-end;
     }
 
+    .topbar-right {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+    }
+
+    .user-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .user-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #f7faff;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .role-badge {
+      border: 1px solid #b4c9ee;
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--accent-2);
+      background: #eef5ff;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: .3px;
+    }
+
     .btn {
       border: none;
       border-radius: 10px;
@@ -423,6 +461,49 @@
       background: #f9fbff;
     }
 
+    .hidden { display: none !important; }
+
+    .auth-screen {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .auth-card {
+      width: min(440px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .auth-title {
+      margin: 0;
+      font: 700 25px/1.1 'Space Grotesk', sans-serif;
+    }
+
+    .auth-subtitle {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .auth-switch {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .auth-hint {
+      margin: 2px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
     @media (max-width: 1024px) {
       .layout { grid-template-columns: 1fr; }
       .calls-list, .workspace { height: auto; max-height: none; }
@@ -431,20 +512,50 @@
       .catalog-grid { grid-template-columns: 1fr; }
       .upload-row { justify-content: flex-start; }
       .topbar { grid-template-columns: 1fr; }
+      .topbar-right { justify-items: stretch; }
+      .user-row { justify-content: flex-start; }
     }
   </style>
 </head>
 <body>
-  <div class="page">
+  <section id="login-screen" class="auth-screen hidden">
+    <form id="login-form" class="auth-card">
+      <h1 class="auth-title">Call Routing Console</h1>
+      <p id="auth-subtitle" class="auth-subtitle">Sign in to process and review calls.</p>
+      <div class="auth-switch" role="tablist" aria-label="Auth mode">
+        <button id="auth-mode-login-btn" class="tab-btn active" type="button" role="tab" aria-selected="true">Sign in</button>
+        <button id="auth-mode-register-btn" class="tab-btn" type="button" role="tab" aria-selected="false">Register</button>
+      </div>
+      <div class="row">
+        <label for="login-username">Username</label>
+        <input id="login-username" autocomplete="username" required />
+      </div>
+      <div class="row">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <p id="auth-hint" class="auth-hint">Use your existing account credentials.</p>
+      <button id="login-btn" class="btn btn-primary" type="submit">Sign in</button>
+      <div id="login-banner" class="banner"></div>
+    </form>
+  </section>
+
+  <div id="app-shell" class="page hidden">
     <header class="topbar">
       <div>
         <h1 class="title">Call Routing Console</h1>
         <p class="subtitle">Upload calls, review AI routing, accept or override categories, and export reviewed result.</p>
       </div>
-      <form id="process-form" class="upload-row">
-        <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/*" />
-        <button id="process-btn" class="btn btn-primary" type="submit">Process Call</button>
-      </form>
+      <div class="topbar-right">
+        <div class="user-row">
+          <div id="user-pill" class="user-pill"></div>
+          <button id="logout-btn" class="btn btn-ghost" type="button">Logout</button>
+        </div>
+        <form id="process-form" class="upload-row">
+          <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/*" />
+          <button id="process-btn" class="btn btn-primary" type="submit">Process Call</button>
+        </form>
+      </div>
     </header>
 
     <section class="layout">
@@ -479,6 +590,7 @@
 
   <script>
     const STORAGE_KEY = 'ts_calls_review_state_v1';
+    const AUTH_STORAGE_KEY = 'ts_calls_auth_state_v1';
     const PRIORITY_PRESETS = ['low', 'medium', 'high', 'critical'];
     const ERROR_TYPE_PRESETS = [
       { value: 'none', label: 'No error (AI correct)' },
@@ -519,10 +631,31 @@
       routingModelBusy: false,
       activeTab: 'review',
       showAddGroupForm: false,
-      showAddIntentForm: false
+      showAddIntentForm: false,
+      loginBanner: null,
+      authBusy: false,
+      authMode: 'login',
+      users: [],
+      auth: {
+        token: '',
+        user: null
+      }
     };
 
     const el = {
+      loginScreen: document.getElementById('login-screen'),
+      appShell: document.getElementById('app-shell'),
+      loginForm: document.getElementById('login-form'),
+      authSubtitle: document.getElementById('auth-subtitle'),
+      authHint: document.getElementById('auth-hint'),
+      authModeLoginBtn: document.getElementById('auth-mode-login-btn'),
+      authModeRegisterBtn: document.getElementById('auth-mode-register-btn'),
+      loginUsername: document.getElementById('login-username'),
+      loginPassword: document.getElementById('login-password'),
+      loginBtn: document.getElementById('login-btn'),
+      loginBanner: document.getElementById('login-banner'),
+      userPill: document.getElementById('user-pill'),
+      logoutBtn: document.getElementById('logout-btn'),
       form: document.getElementById('process-form'),
       file: document.getElementById('audio-file'),
       processBtn: document.getElementById('process-btn'),
@@ -541,13 +674,26 @@
 
     async function init() {
       load();
+      loadAuth();
       bindEvents();
-      await loadRoutingCatalog(true);
-      await loadRoutingModelStatus(true);
+      if (state.auth.token) {
+        const restored = await restoreSession();
+        if (restored) {
+          await loadRoutingCatalog(true);
+          await loadRoutingModelStatus(true);
+          if (isAdmin()) {
+            await loadUsers(true);
+          }
+        }
+      }
       render();
     }
 
     function bindEvents() {
+      el.loginForm.addEventListener('submit', onLoginSubmit);
+      el.authModeLoginBtn.addEventListener('click', () => setAuthMode('login'));
+      el.authModeRegisterBtn.addEventListener('click', () => setAuthMode('register'));
+      el.logoutBtn.addEventListener('click', onLogoutClick);
       el.form.addEventListener('submit', onProcessSubmit);
       el.clearBtn.addEventListener('click', clearAllCalls);
       el.acceptBtn.addEventListener('click', () => applyDecision('accepted'));
@@ -561,8 +707,27 @@
 
     function setActiveTab(tab) {
       if (tab !== 'review' && tab !== 'settings') return;
+      if (tab === 'settings' && !isAdmin()) return;
       state.activeTab = tab;
+      if (tab === 'settings' && isAdmin() && state.users.length === 0) {
+        loadUsers(true).then(render);
+      }
       render();
+    }
+
+    function setAuthMode(mode) {
+      if (mode !== 'login' && mode !== 'register') return;
+      state.authMode = mode;
+      state.loginBanner = null;
+      renderAuth();
+    }
+
+    function isAuthenticated() {
+      return Boolean(state.auth && state.auth.token && state.auth.user);
+    }
+
+    function isAdmin() {
+      return Boolean(state.auth && state.auth.user && state.auth.user.role === 'admin');
     }
 
     function load() {
@@ -578,6 +743,19 @@
       }
     }
 
+    function loadAuth() {
+      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        state.auth.token = parsed && typeof parsed.token === 'string' ? parsed.token : '';
+        state.auth.user = parsed && parsed.user && typeof parsed.user === 'object' ? parsed.user : null;
+      } catch (_err) {
+        state.auth.token = '';
+        state.auth.user = null;
+      }
+    }
+
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         calls: state.calls,
@@ -585,13 +763,122 @@
       }));
     }
 
+    function persistAuth() {
+      if (!state.auth.token || !state.auth.user) {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        return;
+      }
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+        token: state.auth.token,
+        user: state.auth.user
+      }));
+    }
+
+    function clearAuth() {
+      state.auth.token = '';
+      state.auth.user = null;
+      state.users = [];
+      persistAuth();
+    }
+
+    async function restoreSession() {
+      try {
+        const me = await apiJson('/api/v1/auth/me', null, true, true);
+        state.auth.user = me;
+        persistAuth();
+        return true;
+      } catch (_err) {
+        clearAuth();
+        return false;
+      }
+    }
+
+    async function onLoginSubmit(event) {
+      event.preventDefault();
+      const username = el.loginUsername.value.trim();
+      const password = el.loginPassword.value;
+      if (!username || !password) {
+        setLoginBanner('Username and password are required.', 'error');
+        return;
+      }
+
+      state.authBusy = true;
+      renderAuth();
+
+      try {
+        if (state.authMode === 'register') {
+          await apiJson('/api/v1/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          }, false);
+          setAuthMode('login');
+          setLoginBanner('Registration submitted. Wait for admin approval before sign in.', 'ok');
+          el.loginPassword.value = '';
+          return;
+        }
+
+        const payload = await apiJson('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        }, false);
+
+        if (!payload || !payload.token || !payload.user) {
+          throw new Error('Invalid login response');
+        }
+
+        state.auth.token = payload.token;
+        state.auth.user = payload.user;
+        persistAuth();
+        state.loginBanner = null;
+        el.loginPassword.value = '';
+
+        await loadRoutingCatalog(true);
+        await loadRoutingModelStatus(true);
+        if (isAdmin()) {
+          await loadUsers(true);
+        } else {
+          state.users = [];
+          state.activeTab = 'review';
+        }
+        setBanner('Signed in as ' + state.auth.user.username + '.', 'ok');
+      } catch (err) {
+        setLoginBanner(String(err.message || err), 'error');
+      } finally {
+        state.authBusy = false;
+        render();
+      }
+    }
+
+    function onLogoutClick() {
+      clearAuth();
+      state.processing = false;
+      state.activeTab = 'review';
+      state.authMode = 'login';
+      state.loginBanner = { message: 'Signed out.', type: 'ok' };
+      render();
+    }
+
+    function setLoginBanner(message, type) {
+      state.loginBanner = message ? { message, type: type === 'error' ? 'error' : 'ok' } : null;
+      renderLoginBanner();
+    }
+
+    function handleUnauthorized(silent) {
+      clearAuth();
+      state.processing = false;
+      state.activeTab = 'review';
+      state.authMode = 'login';
+      if (!silent) {
+        state.loginBanner = { message: 'Session expired. Sign in again.', type: 'error' };
+      }
+      render();
+    }
+
     async function loadRoutingCatalog(silent) {
       try {
-        const response = await fetch('/api/v1/routing-config');
-        const payload = await safeJson(response);
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : 'Failed to load routing config');
-        }
+        const payload = await apiJson('/api/v1/routing-config');
         state.catalog = normalizeCatalog(payload);
       } catch (err) {
         state.catalog = cloneCatalog(FALLBACK_CATALOG);
@@ -603,16 +890,31 @@
 
     async function loadRoutingModelStatus(silent) {
       try {
-        const response = await fetch('/api/v1/routing-model/status');
-        const payload = await safeJson(response);
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : 'Failed to load routing model status');
-        }
+        const payload = await apiJson('/api/v1/routing-model/status');
         state.routingModelStatus = payload;
       } catch (err) {
         state.routingModelStatus = null;
         if (!silent) {
           setBanner('Routing model status request failed.', 'error');
+        }
+      }
+    }
+
+    async function loadUsers(silent) {
+      if (!isAdmin()) {
+        state.users = [];
+        return;
+      }
+      try {
+        const payload = await apiJson('/api/v1/users');
+        const users = payload && Array.isArray(payload.users) ? payload.users : [];
+        state.users = users.slice().sort((a, b) => {
+          return String(a.username || '').localeCompare(String(b.username || ''));
+        });
+      } catch (err) {
+        state.users = [];
+        if (!silent) {
+          setBanner('Failed to load users list.', 'error');
         }
       }
     }
@@ -633,12 +935,7 @@
       body.append('audio', file, file.name);
 
       try {
-        const response = await fetch('/api/v1/process-call', { method: 'POST', body });
-        const payload = await safeJson(response);
-
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : 'Request failed');
-        }
+        const payload = await apiJson('/api/v1/process-call', { method: 'POST', body });
 
         const call = toCallRecord(file, payload);
         state.calls.unshift(call);
@@ -689,16 +986,71 @@
     }
 
     function render() {
+      renderAuth();
+      if (!isAuthenticated()) {
+        return;
+      }
       renderCallsList();
       renderWorkspace();
       renderActions();
       renderTabs();
     }
 
+    function renderAuth() {
+      const authenticated = isAuthenticated();
+      el.loginScreen.classList.toggle('hidden', authenticated);
+      el.appShell.classList.toggle('hidden', !authenticated);
+      el.loginBtn.disabled = state.authBusy;
+      renderAuthMode();
+      renderLoginBanner();
+      renderUserPill();
+    }
+
+    function renderAuthMode() {
+      const isLogin = state.authMode === 'login';
+      el.authModeLoginBtn.classList.toggle('active', isLogin);
+      el.authModeRegisterBtn.classList.toggle('active', !isLogin);
+      el.authModeLoginBtn.setAttribute('aria-selected', isLogin ? 'true' : 'false');
+      el.authModeRegisterBtn.setAttribute('aria-selected', isLogin ? 'false' : 'true');
+      el.authSubtitle.textContent = isLogin
+        ? 'Sign in to process and review calls.'
+        : 'Create an operator account. Admin approval is required.';
+      el.authHint.textContent = isLogin
+        ? 'Use your existing account credentials.'
+        : 'Registration creates only operator role and stays pending until admin approves.';
+      el.loginBtn.textContent = isLogin ? 'Sign in' : 'Register';
+    }
+
+    function renderLoginBanner() {
+      if (!el.loginBanner) return;
+      if (!state.loginBanner) {
+        el.loginBanner.className = 'banner';
+        el.loginBanner.textContent = '';
+        return;
+      }
+      el.loginBanner.className = 'banner show ' + (state.loginBanner.type === 'error' ? 'error' : 'ok');
+      el.loginBanner.textContent = state.loginBanner.message;
+    }
+
+    function renderUserPill() {
+      if (!el.userPill) return;
+      if (!isAuthenticated()) {
+        el.userPill.textContent = '';
+        return;
+      }
+      const user = state.auth.user || {};
+      el.userPill.innerHTML = '<strong>' + escapeHtml(user.username || '-') + '</strong><span class="role-badge">' + escapeHtml(String(user.role || 'operator')) + '</span>';
+    }
+
     function renderTabs() {
+      if (!isAdmin() && state.activeTab === 'settings') {
+        state.activeTab = 'review';
+      }
+
       const isReview = state.activeTab === 'review';
       el.tabReviewBtn.classList.toggle('active', isReview);
       el.tabSettingsBtn.classList.toggle('active', !isReview);
+      el.tabSettingsBtn.classList.toggle('hidden', !isAdmin());
       el.tabReviewBtn.setAttribute('aria-selected', isReview ? 'true' : 'false');
       el.tabSettingsBtn.setAttribute('aria-selected', isReview ? 'false' : 'true');
       el.reviewToolbar.classList.toggle('hidden', !isReview);
@@ -741,7 +1093,7 @@
     }
 
     function renderWorkspace() {
-      if (state.activeTab === 'settings') {
+      if (state.activeTab === 'settings' && isAdmin()) {
         el.workspace.innerHTML = renderCatalogBlock();
         bindCatalogInputs();
         renderBanner();
@@ -1006,6 +1358,79 @@
             </div>
           </div>
         </section>
+        ${renderUsersAdminBlock()}
+      `;
+    }
+
+    function renderUsersAdminBlock() {
+      const users = Array.isArray(state.users) ? state.users : [];
+      const pendingOperators = users.filter((user) => user && user.role === 'operator' && !user.is_approved);
+      const activeOperators = users.filter((user) => user && user.role === 'operator' && user.is_active);
+      const inactiveOperators = users.filter((user) => user && user.role === 'operator' && user.is_approved && !user.is_active);
+      const admins = users.filter((user) => user && user.role === 'admin');
+
+      return `
+        <section class="card">
+          <h3>User Management</h3>
+          <div class="toolbar">
+            <button id="refresh-users-btn" class="btn btn-ghost btn-mini" type="button">Refresh Users</button>
+          </div>
+          <div class="help-note">
+            <strong>Admins:</strong> ${admins.length} |
+            <strong>Active operators:</strong> ${activeOperators.length} |
+            <strong>Inactive operators:</strong> ${inactiveOperators.length} |
+            <strong>Pending operators:</strong> ${pendingOperators.length}
+          </div>
+          <div class="row">
+            <label>Active operators</label>
+            <div class="catalog-list">
+              ${activeOperators.length === 0 ? '<div class="catalog-item-sub">No active operators.</div>' : activeOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-bad btn-mini js-deactivate-user" data-id="${escapeAttr(String(user.id))}" type="button">Deactivate</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="row">
+            <label>Inactive operators (approved)</label>
+            <div class="catalog-list">
+              ${inactiveOperators.length === 0 ? '<div class="catalog-item-sub">No inactive approved operators.</div>' : inactiveOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-ok btn-mini js-activate-user" data-id="${escapeAttr(String(user.id))}" type="button">Activate</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="row">
+            <label>Pending operator registrations</label>
+            <div class="catalog-list">
+              ${pendingOperators.length === 0 ? '<div class="catalog-item-sub">No pending operator registrations.</div>' : pendingOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-ok btn-mini js-approve-user" data-id="${escapeAttr(String(user.id))}" type="button">Approve</button>
+                      <button class="btn btn-bad btn-mini js-del-user" data-id="${escapeAttr(String(user.id))}" type="button">Delete</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </section>
       `;
     }
 
@@ -1109,6 +1534,15 @@
           await loadRoutingModelStatus(false);
           render();
           setBanner('Routing model status refreshed.', 'ok');
+        });
+      }
+
+      const refreshUsersBtn = document.getElementById('refresh-users-btn');
+      if (refreshUsersBtn) {
+        refreshUsersBtn.addEventListener('click', async () => {
+          await loadUsers(false);
+          render();
+          setBanner('Users list refreshed.', 'ok');
         });
       }
 
@@ -1253,6 +1687,76 @@
             state.catalog = normalizeCatalog(catalog);
             render();
             setBanner('Routing intent deleted.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-approve-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/approve', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account approved.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-activate-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/approve', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account activated.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-deactivate-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          if (!confirm('Deactivate this operator account?')) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/deactivate', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account deactivated.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-del-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          if (!confirm('Delete this operator account?')) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID), {
+              method: 'DELETE'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('User account deleted.', 'ok');
           } catch (err) {
             setBanner(String(err.message || err), 'error');
           }
@@ -1433,7 +1937,8 @@
     }
 
     function renderActions() {
-      const disabled = state.processing;
+      const disabled = state.processing || !isAuthenticated();
+      el.logoutBtn.disabled = state.processing;
       el.processBtn.disabled = disabled;
 
       const hasCall = state.activeTab === 'review' && Boolean(getSelectedCall());
@@ -1534,9 +2039,25 @@
       return JSON.parse(JSON.stringify(catalog || { groups: [], intents: [] }));
     }
 
-    async function apiJson(url, options) {
-      const response = await fetch(url, options || {});
+    async function apiJson(url, options, withAuth, silentUnauthorized) {
+      const requestOptions = { ...(options || {}) };
+      const needsAuth = withAuth !== false;
+      const headers = new Headers(requestOptions.headers || {});
+
+      if (needsAuth) {
+        if (!state.auth.token) {
+          handleUnauthorized(Boolean(silentUnauthorized));
+          throw new Error('unauthorized');
+        }
+        headers.set('Authorization', 'Bearer ' + state.auth.token);
+      }
+
+      requestOptions.headers = headers;
+      const response = await fetch(url, requestOptions);
       const payload = await safeJson(response);
+      if (response.status === 401 && needsAuth) {
+        handleUnauthorized(Boolean(silentUnauthorized));
+      }
       if (!response.ok) {
         throw new Error(payload && payload.error ? payload.error : 'Request failed');
       }

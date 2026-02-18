@@ -20,7 +20,18 @@ def _patch_torch_safe_globals() -> None:
             return
         from omegaconf.dictconfig import DictConfig
         from omegaconf.listconfig import ListConfig
-        add_safe_globals([ListConfig, DictConfig])
+        from torch.torch_version import TorchVersion
+
+        safe_globals = [ListConfig, DictConfig, TorchVersion]
+        try:
+            from pyannote.audio.core.task import Problem, Resolution, Specifications
+
+            safe_globals.extend([Specifications, Problem, Resolution])
+        except Exception:
+            # pyannote might be absent in some runtime setups.
+            pass
+
+        add_safe_globals(safe_globals)
     except Exception:
         # Best-effort compatibility patch. Ignore if unavailable.
         return

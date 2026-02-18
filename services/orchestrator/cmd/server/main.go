@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net"
@@ -13,10 +14,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 	"orchestrator/internal/clients"
 	callprocessingv1 "orchestrator/internal/gen"
 	"orchestrator/internal/handlers"
+	"orchestrator/internal/middleware"
+	"orchestrator/internal/models"
 	"orchestrator/internal/services"
 	"orchestrator/pkg/config"
 )
@@ -24,6 +28,27 @@ import (
 func main() {
 	// Загрузка конфигурации
 	cfg := config.Load()
+
+	// Подключение к БД
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
+	}
+	log.Println("✓ Database connected")
+
+	// User service + миграция + seed
+	userService := services.NewUserService(db)
+	if err := userService.Migrate(); err != nil {
+		log.Fatalf("Failed to run users migration: %v", err)
+	}
+	if err := userService.SeedAdmin(cfg.AdminUsername, cfg.AdminPassword); err != nil {
+		log.Fatalf("Failed to seed admin: %v", err)
+	}
 
 	// Инициализация клиентов
 	transcriptionClient, err := clients.NewTranscriptionClient(cfg.TranscriptionGRPCAddr)
@@ -81,12 +106,17 @@ func main() {
 		time.Duration(cfg.RouterAdminTimeoutSeconds)*time.Second,
 	)
 
-	// Инициализация handler
+	// Инициализация handlers
 	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService, routingFeedbackService, routingModelService)
+	authHandler := handlers.NewAuthHandler(userService, cfg.JWTSecret, cfg.JWTExpiryHours)
 	grpcHandler := handlers.NewProcessGRPCHandler(orchestrator)
 
+	// Auth middleware
+	authMw := middleware.AuthRequired(cfg.JWTSecret, userService)
+	adminMw := middleware.RequireRole(models.RoleAdmin)
+
 	// HTTP router
-	router := setupRouter(processHandler)
+	router := setupRouter(processHandler, authHandler, authMw, adminMw)
 
 	httpAddr := ":" + cfg.HTTPPort
 	httpSrv := &http.Server{
@@ -138,7 +168,12 @@ func main() {
 	log.Println("Orchestrator exited")
 }
 
-func setupRouter(h *handlers.ProcessHandler) *gin.Engine {
+func setupRouter(
+	h *handlers.ProcessHandler,
+	auth *handlers.AuthHandler,
+	authMw gin.HandlerFunc,
+	adminMw gin.HandlerFunc,
+) *gin.Engine {
 	// Production mode
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.DebugMode)
@@ -154,25 +189,45 @@ func setupRouter(h *handlers.ProcessHandler) *gin.Engine {
 	// Limit upload size (500 MB)
 	router.MaxMultipartMemory = 500 << 20
 
-	// Routes
+	// Public routes
 	router.GET("/", func(c *gin.Context) {
 		c.File("./web/index.html")
 	})
 	router.GET("/api/info", h.Root)
 	router.GET("/health", h.Health)
 
+	// Auth (public)
+	router.POST("/api/v1/auth/login", auth.Login)
+	router.POST("/api/v1/auth/register", auth.Register)
+
+	// Authenticated routes (operator + admin)
 	api := router.Group("/api/v1")
+	api.Use(authMw)
 	{
+		api.GET("/auth/me", auth.Me)
 		api.POST("/process-call", h.ProcessCall)
 		api.GET("/routing-config", h.GetRoutingConfig)
-		api.PUT("/routing-config", h.UpdateRoutingConfig)
-		api.POST("/routing-config/groups", h.CreateRoutingGroup)
-		api.DELETE("/routing-config/groups/:id", h.DeleteRoutingGroup)
-		api.POST("/routing-config/intents", h.CreateRoutingIntent)
-		api.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
 		api.POST("/routing-feedback", h.SaveRoutingFeedback)
 		api.GET("/routing-model/status", h.GetRoutingModelStatus)
-		api.POST("/routing-model/train", h.TrainRoutingModel)
+
+		// Admin-only routes
+		admin := api.Group("")
+		admin.Use(adminMw)
+		{
+			admin.PUT("/routing-config", h.UpdateRoutingConfig)
+			admin.POST("/routing-config/groups", h.CreateRoutingGroup)
+			admin.DELETE("/routing-config/groups/:id", h.DeleteRoutingGroup)
+			admin.POST("/routing-config/intents", h.CreateRoutingIntent)
+			admin.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
+			admin.POST("/routing-model/train", h.TrainRoutingModel)
+
+			// User management
+			admin.GET("/users", auth.ListUsers)
+			admin.POST("/users", auth.CreateUser)
+			admin.POST("/users/:id/approve", auth.ApproveUser)
+			admin.POST("/users/:id/deactivate", auth.DeactivateUser)
+			admin.DELETE("/users/:id", auth.DeleteUser)
+		}
 	}
 
 	return router
