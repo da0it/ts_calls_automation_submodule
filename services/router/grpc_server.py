@@ -311,6 +311,14 @@ def serve() -> None:
     feedback_path = os.getenv("ROUTER_FEEDBACK_PATH", str(Path(__file__).parent / "configs" / "routing_feedback.jsonl"))
     tuned_model_path = os.getenv("ROUTER_TUNED_MODEL_PATH", str(Path(__file__).parent / "configs" / "router_tuned_head.pt"))
     tuned_blend_alpha = float(os.getenv("ROUTER_TUNED_BLEND", "0.65"))
+    dialog_head_enabled = os.getenv("ROUTER_DIALOG_HEAD_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+    dialog_blend_alpha = float(os.getenv("ROUTER_DIALOG_BLEND", "0.55"))
+    dialog_d_model = int(os.getenv("ROUTER_DIALOG_D_MODEL", "256"))
+    dialog_nhead = int(os.getenv("ROUTER_DIALOG_NHEAD", "4"))
+    dialog_layers = int(os.getenv("ROUTER_DIALOG_LAYERS", "2"))
+    dialog_dropout = float(os.getenv("ROUTER_DIALOG_DROPOUT", "0.1"))
+    dialog_max_turns = int(os.getenv("ROUTER_DIALOG_MAX_TURNS", "64"))
+    dialog_max_turn_chars = int(os.getenv("ROUTER_DIALOG_MAX_TURN_CHARS", "280"))
 
     train_defaults = {
         "epochs": int(os.getenv("ROUTER_TRAIN_EPOCHS", "90")),
@@ -327,6 +335,14 @@ def serve() -> None:
         min_confidence=min_confidence,
         tuned_model_path=tuned_model_path,
         tuned_blend_alpha=tuned_blend_alpha,
+        dialog_head_enabled=dialog_head_enabled,
+        dialog_blend_alpha=dialog_blend_alpha,
+        dialog_d_model=dialog_d_model,
+        dialog_nhead=dialog_nhead,
+        dialog_layers=dialog_layers,
+        dialog_dropout=dialog_dropout,
+        dialog_max_turns=dialog_max_turns,
+        dialog_max_turn_chars=dialog_max_turn_chars,
     )
 
     routing_service = RoutingService(

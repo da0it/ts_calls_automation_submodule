@@ -1884,6 +1884,7 @@
         error_type: call.review.errorType || (call.review.decision === 'accepted' ? 'none' : 'other'),
         comment: call.review.comment || '',
         transcript_text: segmentsToText(segments, 8000),
+        transcript_segments: segmentsToFeedbackSegments(segments, 160),
         training_sample: segmentsToText(segments, 280),
         ai: {
           intent_id: call.aiSuggestion.intentId || '',
@@ -1897,6 +1898,27 @@
           group: call.review.group || ''
         }
       };
+    }
+
+    function segmentsToFeedbackSegments(segments, maxItems) {
+      if (!Array.isArray(segments) || segments.length === 0) return [];
+      const out = [];
+      const limit = Math.max(1, Number(maxItems || 160));
+      for (const segment of segments) {
+        const text = String(segment && segment.text || '').trim();
+        if (!text) continue;
+        const start = Number(segment && segment.start);
+        const end = Number(segment && segment.end);
+        out.push({
+          start: Number.isFinite(start) && start >= 0 ? start : 0,
+          end: Number.isFinite(end) && end >= 0 ? end : 0,
+          speaker: String(segment && segment.speaker || '').trim(),
+          role: String(segment && segment.role || '').trim(),
+          text: text.slice(0, 420)
+        });
+        if (out.length >= limit) break;
+      }
+      return out;
     }
 
     function segmentsToText(segments, maxChars) {

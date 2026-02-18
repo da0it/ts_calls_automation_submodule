@@ -8,14 +8,15 @@ import (
 )
 
 type routingFeedbackRequest struct {
-	CallID         string `json:"call_id"`
-	SourceFilename string `json:"source_filename"`
-	Decision       string `json:"decision"`
-	ErrorType      string `json:"error_type"`
-	Comment        string `json:"comment"`
-	TranscriptText string `json:"transcript_text"`
-	TrainingSample string `json:"training_sample"`
-	AI             struct {
+	CallID             string                               `json:"call_id"`
+	SourceFilename     string                               `json:"source_filename"`
+	Decision           string                               `json:"decision"`
+	ErrorType          string                               `json:"error_type"`
+	Comment            string                               `json:"comment"`
+	TranscriptText     string                               `json:"transcript_text"`
+	TranscriptSegments []services.FeedbackTranscriptSegment `json:"transcript_segments"`
+	TrainingSample     string                               `json:"training_sample"`
+	AI                 struct {
 		IntentID   string  `json:"intent_id"`
 		Confidence float64 `json:"confidence"`
 		Priority   string  `json:"priority"`
@@ -41,13 +42,14 @@ func (h *ProcessHandler) SaveRoutingFeedback(c *gin.Context) {
 	}
 
 	record, err := h.routingFeedbackService.SaveFeedback(services.RoutingFeedbackRequest{
-		CallID:         payload.CallID,
-		SourceFilename: payload.SourceFilename,
-		Decision:       payload.Decision,
-		ErrorType:      payload.ErrorType,
-		Comment:        payload.Comment,
-		TranscriptText: payload.TranscriptText,
-		TrainingSample: payload.TrainingSample,
+		CallID:             payload.CallID,
+		SourceFilename:     payload.SourceFilename,
+		Decision:           payload.Decision,
+		ErrorType:          payload.ErrorType,
+		Comment:            payload.Comment,
+		TranscriptText:     payload.TranscriptText,
+		TranscriptSegments: payload.TranscriptSegments,
+		TrainingSample:     payload.TrainingSample,
 		AI: services.FeedbackAISuggestion{
 			IntentID:   payload.AI.IntentID,
 			Confidence: payload.AI.Confidence,
