@@ -20,7 +20,6 @@ Edit these files:
 Important settings:
 
 - `HF_TOKEN` for whisperx/pyannote path (if needed)
-- `ASR_BACKEND` (`whisperx` or `faster`)
 - `WHISPERX_DIARIZATION_BACKEND` (`nemo` or `pyannote`)
 
 ## 2. Build

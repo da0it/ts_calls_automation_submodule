@@ -77,6 +77,44 @@
       justify-content: flex-end;
     }
 
+    .topbar-right {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+    }
+
+    .user-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .user-pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #f7faff;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .role-badge {
+      border: 1px solid #b4c9ee;
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--accent-2);
+      background: #eef5ff;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: .3px;
+    }
+
     .btn {
       border: none;
       border-radius: 10px;
@@ -269,6 +307,33 @@
       margin-top: 8px;
     }
 
+    .toolbar.hidden { display: none; }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .tab-btn {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 8px 12px;
+      font: 600 13px/1.1 'IBM Plex Sans', sans-serif;
+      cursor: pointer;
+      transition: background .12s ease, border-color .12s ease, transform .12s ease;
+    }
+
+    .tab-btn:hover { transform: translateY(-1px); }
+    .tab-btn.active {
+      border-color: #b4c9ee;
+      background: #eef5ff;
+      color: var(--accent-2);
+    }
+
     .segments {
       max-height: 320px;
       overflow: auto;
@@ -360,6 +425,10 @@
       border-radius: 8px;
     }
 
+    .collapsible-form.hidden {
+      display: none;
+    }
+
     .banner {
       font-size: 13px;
       border-radius: 10px;
@@ -392,6 +461,49 @@
       background: #f9fbff;
     }
 
+    .hidden { display: none !important; }
+
+    .auth-screen {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .auth-card {
+      width: min(440px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .auth-title {
+      margin: 0;
+      font: 700 25px/1.1 'Space Grotesk', sans-serif;
+    }
+
+    .auth-subtitle {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .auth-switch {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .auth-hint {
+      margin: 2px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
     @media (max-width: 1024px) {
       .layout { grid-template-columns: 1fr; }
       .calls-list, .workspace { height: auto; max-height: none; }
@@ -400,20 +512,50 @@
       .catalog-grid { grid-template-columns: 1fr; }
       .upload-row { justify-content: flex-start; }
       .topbar { grid-template-columns: 1fr; }
+      .topbar-right { justify-items: stretch; }
+      .user-row { justify-content: flex-start; }
     }
   </style>
 </head>
 <body>
-  <div class="page">
+  <section id="login-screen" class="auth-screen hidden">
+    <form id="login-form" class="auth-card">
+      <h1 class="auth-title">Call Routing Console</h1>
+      <p id="auth-subtitle" class="auth-subtitle">Sign in to process and review calls.</p>
+      <div class="auth-switch" role="tablist" aria-label="Auth mode">
+        <button id="auth-mode-login-btn" class="tab-btn active" type="button" role="tab" aria-selected="true">Sign in</button>
+        <button id="auth-mode-register-btn" class="tab-btn" type="button" role="tab" aria-selected="false">Register</button>
+      </div>
+      <div class="row">
+        <label for="login-username">Username</label>
+        <input id="login-username" autocomplete="username" required />
+      </div>
+      <div class="row">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <p id="auth-hint" class="auth-hint">Use your existing account credentials.</p>
+      <button id="login-btn" class="btn btn-primary" type="submit">Sign in</button>
+      <div id="login-banner" class="banner"></div>
+    </form>
+  </section>
+
+  <div id="app-shell" class="page hidden">
     <header class="topbar">
       <div>
         <h1 class="title">Call Routing Console</h1>
         <p class="subtitle">Upload calls, review AI routing, accept or override categories, and export reviewed result.</p>
       </div>
-      <form id="process-form" class="upload-row">
-        <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/*" />
-        <button id="process-btn" class="btn btn-primary" type="submit">Process Call</button>
-      </form>
+      <div class="topbar-right">
+        <div class="user-row">
+          <div id="user-pill" class="user-pill"></div>
+          <button id="logout-btn" class="btn btn-ghost" type="button">Logout</button>
+        </div>
+        <form id="process-form" class="upload-row">
+          <input id="audio-file" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/*" />
+          <button id="process-btn" class="btn btn-primary" type="submit">Process Call</button>
+        </form>
+      </div>
     </header>
 
     <section class="layout">
@@ -427,8 +569,11 @@
 
       <main class="panel">
         <div class="panel-head">
-          <h2 class="panel-title">Call Review</h2>
-          <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="Workspace tabs">
+            <button id="tab-review-btn" class="tab-btn active" type="button" role="tab" aria-selected="true">Call Review</button>
+            <button id="tab-settings-btn" class="tab-btn" type="button" role="tab" aria-selected="false">Settings</button>
+          </div>
+          <div id="review-toolbar" class="toolbar">
             <button id="accept-btn" class="btn btn-ok" type="button">Accept AI</button>
             <button id="reject-btn" class="btn btn-bad" type="button">Reject AI</button>
             <button id="save-btn" class="btn btn-primary" type="button">Save Decision</button>
@@ -437,6 +582,7 @@
           </div>
         </div>
 
+        <div id="local-banner" class="banner"></div>
         <div class="workspace" id="workspace"></div>
       </main>
     </section>
@@ -444,6 +590,7 @@
 
   <script>
     const STORAGE_KEY = 'ts_calls_review_state_v1';
+    const AUTH_STORAGE_KEY = 'ts_calls_auth_state_v1';
     const PRIORITY_PRESETS = ['low', 'medium', 'high', 'critical'];
     const ERROR_TYPE_PRESETS = [
       { value: 'none', label: 'No error (AI correct)' },
@@ -479,10 +626,36 @@
       selectedCallId: null,
       processing: false,
       banner: null,
-      catalog: cloneCatalog(FALLBACK_CATALOG)
+      catalog: cloneCatalog(FALLBACK_CATALOG),
+      routingModelStatus: null,
+      routingModelBusy: false,
+      activeTab: 'review',
+      showAddGroupForm: false,
+      showAddIntentForm: false,
+      loginBanner: null,
+      authBusy: false,
+      authMode: 'login',
+      users: [],
+      auth: {
+        token: '',
+        user: null
+      }
     };
 
     const el = {
+      loginScreen: document.getElementById('login-screen'),
+      appShell: document.getElementById('app-shell'),
+      loginForm: document.getElementById('login-form'),
+      authSubtitle: document.getElementById('auth-subtitle'),
+      authHint: document.getElementById('auth-hint'),
+      authModeLoginBtn: document.getElementById('auth-mode-login-btn'),
+      authModeRegisterBtn: document.getElementById('auth-mode-register-btn'),
+      loginUsername: document.getElementById('login-username'),
+      loginPassword: document.getElementById('login-password'),
+      loginBtn: document.getElementById('login-btn'),
+      loginBanner: document.getElementById('login-banner'),
+      userPill: document.getElementById('user-pill'),
+      logoutBtn: document.getElementById('logout-btn'),
       form: document.getElementById('process-form'),
       file: document.getElementById('audio-file'),
       processBtn: document.getElementById('process-btn'),
@@ -493,17 +666,34 @@
       rejectBtn: document.getElementById('reject-btn'),
       saveBtn: document.getElementById('save-btn'),
       exportBtn: document.getElementById('export-btn'),
-      copyBtn: document.getElementById('copy-btn')
+      copyBtn: document.getElementById('copy-btn'),
+      tabReviewBtn: document.getElementById('tab-review-btn'),
+      tabSettingsBtn: document.getElementById('tab-settings-btn'),
+      reviewToolbar: document.getElementById('review-toolbar')
     };
 
     async function init() {
       load();
+      loadAuth();
       bindEvents();
-      await loadRoutingCatalog(true);
+      if (state.auth.token) {
+        const restored = await restoreSession();
+        if (restored) {
+          await loadRoutingCatalog(true);
+          await loadRoutingModelStatus(true);
+          if (isAdmin()) {
+            await loadUsers(true);
+          }
+        }
+      }
       render();
     }
 
     function bindEvents() {
+      el.loginForm.addEventListener('submit', onLoginSubmit);
+      el.authModeLoginBtn.addEventListener('click', () => setAuthMode('login'));
+      el.authModeRegisterBtn.addEventListener('click', () => setAuthMode('register'));
+      el.logoutBtn.addEventListener('click', onLogoutClick);
       el.form.addEventListener('submit', onProcessSubmit);
       el.clearBtn.addEventListener('click', clearAllCalls);
       el.acceptBtn.addEventListener('click', () => applyDecision('accepted'));
@@ -511,6 +701,33 @@
       el.saveBtn.addEventListener('click', () => saveDecision());
       el.exportBtn.addEventListener('click', exportCurrentCall);
       el.copyBtn.addEventListener('click', copyCurrentCall);
+      el.tabReviewBtn.addEventListener('click', () => setActiveTab('review'));
+      el.tabSettingsBtn.addEventListener('click', () => setActiveTab('settings'));
+    }
+
+    function setActiveTab(tab) {
+      if (tab !== 'review' && tab !== 'settings') return;
+      if (tab === 'settings' && !isAdmin()) return;
+      state.activeTab = tab;
+      if (tab === 'settings' && isAdmin() && state.users.length === 0) {
+        loadUsers(true).then(render);
+      }
+      render();
+    }
+
+    function setAuthMode(mode) {
+      if (mode !== 'login' && mode !== 'register') return;
+      state.authMode = mode;
+      state.loginBanner = null;
+      renderAuth();
+    }
+
+    function isAuthenticated() {
+      return Boolean(state.auth && state.auth.token && state.auth.user);
+    }
+
+    function isAdmin() {
+      return Boolean(state.auth && state.auth.user && state.auth.user.role === 'admin');
     }
 
     function load() {
@@ -526,6 +743,19 @@
       }
     }
 
+    function loadAuth() {
+      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        state.auth.token = parsed && typeof parsed.token === 'string' ? parsed.token : '';
+        state.auth.user = parsed && parsed.user && typeof parsed.user === 'object' ? parsed.user : null;
+      } catch (_err) {
+        state.auth.token = '';
+        state.auth.user = null;
+      }
+    }
+
     function persist() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         calls: state.calls,
@@ -533,18 +763,158 @@
       }));
     }
 
+    function persistAuth() {
+      if (!state.auth.token || !state.auth.user) {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        return;
+      }
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+        token: state.auth.token,
+        user: state.auth.user
+      }));
+    }
+
+    function clearAuth() {
+      state.auth.token = '';
+      state.auth.user = null;
+      state.users = [];
+      persistAuth();
+    }
+
+    async function restoreSession() {
+      try {
+        const me = await apiJson('/api/v1/auth/me', null, true, true);
+        state.auth.user = me;
+        persistAuth();
+        return true;
+      } catch (_err) {
+        clearAuth();
+        return false;
+      }
+    }
+
+    async function onLoginSubmit(event) {
+      event.preventDefault();
+      const username = el.loginUsername.value.trim();
+      const password = el.loginPassword.value;
+      if (!username || !password) {
+        setLoginBanner('Username and password are required.', 'error');
+        return;
+      }
+
+      state.authBusy = true;
+      renderAuth();
+
+      try {
+        if (state.authMode === 'register') {
+          await apiJson('/api/v1/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          }, false);
+          setAuthMode('login');
+          setLoginBanner('Registration submitted. Wait for admin approval before sign in.', 'ok');
+          el.loginPassword.value = '';
+          return;
+        }
+
+        const payload = await apiJson('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        }, false);
+
+        if (!payload || !payload.token || !payload.user) {
+          throw new Error('Invalid login response');
+        }
+
+        state.auth.token = payload.token;
+        state.auth.user = payload.user;
+        persistAuth();
+        state.loginBanner = null;
+        el.loginPassword.value = '';
+
+        await loadRoutingCatalog(true);
+        await loadRoutingModelStatus(true);
+        if (isAdmin()) {
+          await loadUsers(true);
+        } else {
+          state.users = [];
+          state.activeTab = 'review';
+        }
+        setBanner('Signed in as ' + state.auth.user.username + '.', 'ok');
+      } catch (err) {
+        setLoginBanner(String(err.message || err), 'error');
+      } finally {
+        state.authBusy = false;
+        render();
+      }
+    }
+
+    function onLogoutClick() {
+      clearAuth();
+      state.processing = false;
+      state.activeTab = 'review';
+      state.authMode = 'login';
+      state.loginBanner = { message: 'Signed out.', type: 'ok' };
+      render();
+    }
+
+    function setLoginBanner(message, type) {
+      state.loginBanner = message ? { message, type: type === 'error' ? 'error' : 'ok' } : null;
+      renderLoginBanner();
+    }
+
+    function handleUnauthorized(silent) {
+      clearAuth();
+      state.processing = false;
+      state.activeTab = 'review';
+      state.authMode = 'login';
+      if (!silent) {
+        state.loginBanner = { message: 'Session expired. Sign in again.', type: 'error' };
+      }
+      render();
+    }
+
     async function loadRoutingCatalog(silent) {
       try {
-        const response = await fetch('/api/v1/routing-config');
-        const payload = await safeJson(response);
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : 'Failed to load routing config');
-        }
+        const payload = await apiJson('/api/v1/routing-config');
         state.catalog = normalizeCatalog(payload);
       } catch (err) {
         state.catalog = cloneCatalog(FALLBACK_CATALOG);
         if (!silent) {
           setBanner('Routing config load failed. Using local fallback presets.', 'error');
+        }
+      }
+    }
+
+    async function loadRoutingModelStatus(silent) {
+      try {
+        const payload = await apiJson('/api/v1/routing-model/status');
+        state.routingModelStatus = payload;
+      } catch (err) {
+        state.routingModelStatus = null;
+        if (!silent) {
+          setBanner('Routing model status request failed.', 'error');
+        }
+      }
+    }
+
+    async function loadUsers(silent) {
+      if (!isAdmin()) {
+        state.users = [];
+        return;
+      }
+      try {
+        const payload = await apiJson('/api/v1/users');
+        const users = payload && Array.isArray(payload.users) ? payload.users : [];
+        state.users = users.slice().sort((a, b) => {
+          return String(a.username || '').localeCompare(String(b.username || ''));
+        });
+      } catch (err) {
+        state.users = [];
+        if (!silent) {
+          setBanner('Failed to load users list.', 'error');
         }
       }
     }
@@ -565,12 +935,7 @@
       body.append('audio', file, file.name);
 
       try {
-        const response = await fetch('/api/v1/process-call', { method: 'POST', body });
-        const payload = await safeJson(response);
-
-        if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : 'Request failed');
-        }
+        const payload = await apiJson('/api/v1/process-call', { method: 'POST', body });
 
         const call = toCallRecord(file, payload);
         state.calls.unshift(call);
@@ -621,9 +986,74 @@
     }
 
     function render() {
+      renderAuth();
+      if (!isAuthenticated()) {
+        return;
+      }
       renderCallsList();
       renderWorkspace();
       renderActions();
+      renderTabs();
+    }
+
+    function renderAuth() {
+      const authenticated = isAuthenticated();
+      el.loginScreen.classList.toggle('hidden', authenticated);
+      el.appShell.classList.toggle('hidden', !authenticated);
+      el.loginBtn.disabled = state.authBusy;
+      renderAuthMode();
+      renderLoginBanner();
+      renderUserPill();
+    }
+
+    function renderAuthMode() {
+      const isLogin = state.authMode === 'login';
+      el.authModeLoginBtn.classList.toggle('active', isLogin);
+      el.authModeRegisterBtn.classList.toggle('active', !isLogin);
+      el.authModeLoginBtn.setAttribute('aria-selected', isLogin ? 'true' : 'false');
+      el.authModeRegisterBtn.setAttribute('aria-selected', isLogin ? 'false' : 'true');
+      el.authSubtitle.textContent = isLogin
+        ? 'Sign in to process and review calls.'
+        : 'Create an operator account. Admin approval is required.';
+      el.authHint.textContent = isLogin
+        ? 'Use your existing account credentials.'
+        : 'Registration creates only operator role and stays pending until admin approves.';
+      el.loginBtn.textContent = isLogin ? 'Sign in' : 'Register';
+    }
+
+    function renderLoginBanner() {
+      if (!el.loginBanner) return;
+      if (!state.loginBanner) {
+        el.loginBanner.className = 'banner';
+        el.loginBanner.textContent = '';
+        return;
+      }
+      el.loginBanner.className = 'banner show ' + (state.loginBanner.type === 'error' ? 'error' : 'ok');
+      el.loginBanner.textContent = state.loginBanner.message;
+    }
+
+    function renderUserPill() {
+      if (!el.userPill) return;
+      if (!isAuthenticated()) {
+        el.userPill.textContent = '';
+        return;
+      }
+      const user = state.auth.user || {};
+      el.userPill.innerHTML = '<strong>' + escapeHtml(user.username || '-') + '</strong><span class="role-badge">' + escapeHtml(String(user.role || 'operator')) + '</span>';
+    }
+
+    function renderTabs() {
+      if (!isAdmin() && state.activeTab === 'settings') {
+        state.activeTab = 'review';
+      }
+
+      const isReview = state.activeTab === 'review';
+      el.tabReviewBtn.classList.toggle('active', isReview);
+      el.tabSettingsBtn.classList.toggle('active', !isReview);
+      el.tabSettingsBtn.classList.toggle('hidden', !isAdmin());
+      el.tabReviewBtn.setAttribute('aria-selected', isReview ? 'true' : 'false');
+      el.tabSettingsBtn.setAttribute('aria-selected', isReview ? 'false' : 'true');
+      el.reviewToolbar.classList.toggle('hidden', !isReview);
     }
 
     function renderCallsList() {
@@ -663,12 +1093,16 @@
     }
 
     function renderWorkspace() {
-      const call = getSelectedCall();
-      const catalogBlock = renderCatalogBlock();
-
-      if (!call) {
-        el.workspace.innerHTML = catalogBlock + '<section class="card"><div class="empty">Select a call from the list to review routing details.</div></section>';
+      if (state.activeTab === 'settings' && isAdmin()) {
+        el.workspace.innerHTML = renderCatalogBlock();
         bindCatalogInputs();
+        renderBanner();
+        return;
+      }
+
+      const call = getSelectedCall();
+      if (!call) {
+        el.workspace.innerHTML = '<section class="card"><div class="empty">Select a call from the list to review routing details.</div></section>';
         renderBanner();
         return;
       }
@@ -790,23 +1224,45 @@
         </section>
       `;
 
-      el.workspace.innerHTML = metaBlock + routingBlock + transcriptBlock + catalogBlock + rawBlock;
+      el.workspace.innerHTML = metaBlock + routingBlock + transcriptBlock + rawBlock;
 
       bindReviewInputs();
-      bindCatalogInputs();
       renderBanner();
     }
 
     function renderCatalogBlock() {
       const groups = getGroupOptions();
       const intents = getIntentOptions();
+      const modelStatus = state.routingModelStatus || {};
+      const tuned = modelStatus.tuned_model || {};
+      const modelLabel = tuned.active ? 'tuned model active' : 'baseline model active';
+      const modelReason = tuned.reason || 'n/a';
+      const modelVersion = tuned.version_id || '-';
+      const modelTrainedAt = tuned.trained_at || '-';
+      const trainReport = tuned.last_train_report || {};
+      const trainSamples = trainReport.dataset && trainReport.dataset.samples_total ? trainReport.dataset.samples_total : '-';
+      const trainF1 = trainReport.metrics && trainReport.metrics.val && typeof trainReport.metrics.val.macro_f1 === 'number'
+        ? trainReport.metrics.val.macro_f1.toFixed(3)
+        : '-';
+      const trainBusy = Boolean(modelStatus.training_in_progress || state.routingModelBusy);
+      const groupFormClass = state.showAddGroupForm ? 'collapsible-form' : 'collapsible-form hidden';
+      const intentFormClass = state.showAddIntentForm ? 'collapsible-form' : 'collapsible-form hidden';
       return `
         <section class="card">
           <h3>Routing Catalog Management</h3>
           <div class="toolbar">
             <button id="refresh-catalog-btn" class="btn btn-ghost btn-mini" type="button">Refresh Catalog</button>
+            <button id="refresh-routing-model-btn" class="btn btn-ghost btn-mini" type="button">Refresh Model Status</button>
+            <button id="train-routing-model-btn" class="btn btn-primary btn-mini" type="button" ${trainBusy ? 'disabled' : ''}>Train Routing Model</button>
           </div>
-          <div id="local-banner" class="banner"></div>
+          <div class="help-note">
+            <strong>Routing model:</strong> ${escapeHtml(modelLabel)}<br />
+            <strong>Status reason:</strong> ${escapeHtml(modelReason)}<br />
+            <strong>Version:</strong> ${escapeHtml(modelVersion)}<br />
+            <strong>Trained at:</strong> ${escapeHtml(modelTrainedAt)}<br />
+            <strong>Last train val macro-F1:</strong> ${escapeHtml(String(trainF1))}<br />
+            <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}
+          </div>
           <div class="catalog-grid">
             <div>
               <div class="row">
@@ -823,7 +1279,8 @@
                   `).join('')}
                 </div>
               </div>
-              <form id="add-group-form">
+              <button id="toggle-add-group-form-btn" class="btn btn-primary btn-mini" type="button">${state.showAddGroupForm ? 'Hide Group Form' : 'Add Group'}</button>
+              <form id="add-group-form" class="${groupFormClass}">
                 <div class="row">
                   <label>New group id</label>
                   <input id="add-group-id" placeholder="marketing_conferences" />
@@ -836,7 +1293,10 @@
                   <label>Description</label>
                   <input id="add-group-description" placeholder="Optional description" />
                 </div>
-                <button class="btn btn-primary btn-mini" type="submit">Add Group</button>
+                <div class="toolbar">
+                  <button class="btn btn-primary btn-mini" type="submit">Create Group</button>
+                  <button id="cancel-add-group-form-btn" class="btn btn-ghost btn-mini" type="button">Cancel</button>
+                </div>
               </form>
             </div>
             <div>
@@ -856,7 +1316,8 @@
                   `).join('')}
                 </div>
               </div>
-              <form id="add-intent-form">
+              <button id="toggle-add-intent-form-btn" class="btn btn-primary btn-mini" type="button">${state.showAddIntentForm ? 'Hide Intent Form' : 'Add Intent'}</button>
+              <form id="add-intent-form" class="${intentFormClass}">
                 <div class="row">
                   <label>New intent id</label>
                   <input id="add-intent-id" placeholder="conference.invite_company" />
@@ -889,8 +1350,84 @@
                   <label>Tags (comma-separated)</label>
                   <input id="add-intent-tags" placeholder="conference, marketing" />
                 </div>
-                <button class="btn btn-primary btn-mini" type="submit">Add Intent</button>
+                <div class="toolbar">
+                  <button class="btn btn-primary btn-mini" type="submit">Create Intent</button>
+                  <button id="cancel-add-intent-form-btn" class="btn btn-ghost btn-mini" type="button">Cancel</button>
+                </div>
               </form>
+            </div>
+          </div>
+        </section>
+        ${renderUsersAdminBlock()}
+      `;
+    }
+
+    function renderUsersAdminBlock() {
+      const users = Array.isArray(state.users) ? state.users : [];
+      const pendingOperators = users.filter((user) => user && user.role === 'operator' && !user.is_approved);
+      const activeOperators = users.filter((user) => user && user.role === 'operator' && user.is_active);
+      const inactiveOperators = users.filter((user) => user && user.role === 'operator' && user.is_approved && !user.is_active);
+      const admins = users.filter((user) => user && user.role === 'admin');
+
+      return `
+        <section class="card">
+          <h3>User Management</h3>
+          <div class="toolbar">
+            <button id="refresh-users-btn" class="btn btn-ghost btn-mini" type="button">Refresh Users</button>
+          </div>
+          <div class="help-note">
+            <strong>Admins:</strong> ${admins.length} |
+            <strong>Active operators:</strong> ${activeOperators.length} |
+            <strong>Inactive operators:</strong> ${inactiveOperators.length} |
+            <strong>Pending operators:</strong> ${pendingOperators.length}
+          </div>
+          <div class="row">
+            <label>Active operators</label>
+            <div class="catalog-list">
+              ${activeOperators.length === 0 ? '<div class="catalog-item-sub">No active operators.</div>' : activeOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-bad btn-mini js-deactivate-user" data-id="${escapeAttr(String(user.id))}" type="button">Deactivate</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="row">
+            <label>Inactive operators (approved)</label>
+            <div class="catalog-list">
+              ${inactiveOperators.length === 0 ? '<div class="catalog-item-sub">No inactive approved operators.</div>' : inactiveOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-ok btn-mini js-activate-user" data-id="${escapeAttr(String(user.id))}" type="button">Activate</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="row">
+            <label>Pending operator registrations</label>
+            <div class="catalog-list">
+              ${pendingOperators.length === 0 ? '<div class="catalog-item-sub">No pending operator registrations.</div>' : pendingOperators.map((user) => `
+                <div class="catalog-item">
+                  <div class="catalog-item-title">
+                    <span>${escapeHtml(user.username)} (operator)</span>
+                    <div class="toolbar">
+                      <button class="btn btn-ok btn-mini js-approve-user" data-id="${escapeAttr(String(user.id))}" type="button">Approve</button>
+                      <button class="btn btn-bad btn-mini js-del-user" data-id="${escapeAttr(String(user.id))}" type="button">Delete</button>
+                    </div>
+                  </div>
+                  <div class="catalog-item-sub">created: ${escapeHtml(formatTime(user.created_at))}</div>
+                </div>
+              `).join('')}
             </div>
           </div>
         </section>
@@ -950,12 +1487,97 @@
     }
 
     function bindCatalogInputs() {
+      const toggleGroupFormBtn = document.getElementById('toggle-add-group-form-btn');
+      if (toggleGroupFormBtn) {
+        toggleGroupFormBtn.addEventListener('click', () => {
+          state.showAddGroupForm = !state.showAddGroupForm;
+          render();
+        });
+      }
+
+      const toggleIntentFormBtn = document.getElementById('toggle-add-intent-form-btn');
+      if (toggleIntentFormBtn) {
+        toggleIntentFormBtn.addEventListener('click', () => {
+          state.showAddIntentForm = !state.showAddIntentForm;
+          render();
+        });
+      }
+
+      const cancelAddGroupFormBtn = document.getElementById('cancel-add-group-form-btn');
+      if (cancelAddGroupFormBtn) {
+        cancelAddGroupFormBtn.addEventListener('click', () => {
+          state.showAddGroupForm = false;
+          render();
+        });
+      }
+
+      const cancelAddIntentFormBtn = document.getElementById('cancel-add-intent-form-btn');
+      if (cancelAddIntentFormBtn) {
+        cancelAddIntentFormBtn.addEventListener('click', () => {
+          state.showAddIntentForm = false;
+          render();
+        });
+      }
+
       const refreshBtn = document.getElementById('refresh-catalog-btn');
       if (refreshBtn) {
         refreshBtn.addEventListener('click', async () => {
           await loadRoutingCatalog(false);
           render();
           setBanner('Routing catalog refreshed from server.', 'ok');
+        });
+      }
+
+      const refreshModelBtn = document.getElementById('refresh-routing-model-btn');
+      if (refreshModelBtn) {
+        refreshModelBtn.addEventListener('click', async () => {
+          await loadRoutingModelStatus(false);
+          render();
+          setBanner('Routing model status refreshed.', 'ok');
+        });
+      }
+
+      const refreshUsersBtn = document.getElementById('refresh-users-btn');
+      if (refreshUsersBtn) {
+        refreshUsersBtn.addEventListener('click', async () => {
+          await loadUsers(false);
+          render();
+          setBanner('Users list refreshed.', 'ok');
+        });
+      }
+
+      const trainModelBtn = document.getElementById('train-routing-model-btn');
+      if (trainModelBtn) {
+        trainModelBtn.addEventListener('click', async () => {
+          if (!confirm('Start routing model training now? This may take several minutes on CPU.')) {
+            return;
+          }
+          state.routingModelBusy = true;
+          render();
+          setBanner('Routing model training started...', 'ok');
+          try {
+            const response = await apiJson('/api/v1/routing-model/train', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            if (response && response.status) {
+              state.routingModelStatus = response.status;
+            } else {
+              await loadRoutingModelStatus(true);
+            }
+            render();
+            const report = response && response.report ? response.report : null;
+            const f1 = report && report.metrics && report.metrics.val && typeof report.metrics.val.macro_f1 === 'number'
+              ? report.metrics.val.macro_f1.toFixed(3)
+              : 'n/a';
+            setBanner('Routing model training finished. val macro-F1=' + f1, 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          } finally {
+            state.routingModelBusy = false;
+            render();
+          }
         });
       }
 
@@ -978,6 +1600,7 @@
             });
             state.catalog = normalizeCatalog(catalog);
             addGroupForm.reset();
+            state.showAddGroupForm = false;
             render();
             setBanner('Routing group created.', 'ok');
           } catch (err) {
@@ -1025,6 +1648,7 @@
             });
             state.catalog = normalizeCatalog(catalog);
             addIntentForm.reset();
+            state.showAddIntentForm = false;
             render();
             setBanner('Routing intent created.', 'ok');
           } catch (err) {
@@ -1063,6 +1687,76 @@
             state.catalog = normalizeCatalog(catalog);
             render();
             setBanner('Routing intent deleted.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-approve-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/approve', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account approved.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-activate-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/approve', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account activated.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-deactivate-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          if (!confirm('Deactivate this operator account?')) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID) + '/deactivate', {
+              method: 'POST'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('Operator account deactivated.', 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          }
+        });
+      });
+
+      [...document.querySelectorAll('.js-del-user')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const userID = button.dataset.id;
+          if (!userID) return;
+          if (!confirm('Delete this operator account?')) return;
+          try {
+            await apiJson('/api/v1/users/' + encodeURIComponent(userID), {
+              method: 'DELETE'
+            });
+            await loadUsers(true);
+            render();
+            setBanner('User account deleted.', 'ok');
           } catch (err) {
             setBanner(String(err.message || err), 'error');
           }
@@ -1190,6 +1884,7 @@
         error_type: call.review.errorType || (call.review.decision === 'accepted' ? 'none' : 'other'),
         comment: call.review.comment || '',
         transcript_text: segmentsToText(segments, 8000),
+        transcript_segments: segmentsToFeedbackSegments(segments, 160),
         training_sample: segmentsToText(segments, 280),
         ai: {
           intent_id: call.aiSuggestion.intentId || '',
@@ -1203,6 +1898,27 @@
           group: call.review.group || ''
         }
       };
+    }
+
+    function segmentsToFeedbackSegments(segments, maxItems) {
+      if (!Array.isArray(segments) || segments.length === 0) return [];
+      const out = [];
+      const limit = Math.max(1, Number(maxItems || 160));
+      for (const segment of segments) {
+        const text = String(segment && segment.text || '').trim();
+        if (!text) continue;
+        const start = Number(segment && segment.start);
+        const end = Number(segment && segment.end);
+        out.push({
+          start: Number.isFinite(start) && start >= 0 ? start : 0,
+          end: Number.isFinite(end) && end >= 0 ? end : 0,
+          speaker: String(segment && segment.speaker || '').trim(),
+          role: String(segment && segment.role || '').trim(),
+          text: text.slice(0, 420)
+        });
+        if (out.length >= limit) break;
+      }
+      return out;
     }
 
     function segmentsToText(segments, maxChars) {
@@ -1243,10 +1959,11 @@
     }
 
     function renderActions() {
-      const disabled = state.processing;
+      const disabled = state.processing || !isAuthenticated();
+      el.logoutBtn.disabled = state.processing;
       el.processBtn.disabled = disabled;
 
-      const hasCall = Boolean(getSelectedCall());
+      const hasCall = state.activeTab === 'review' && Boolean(getSelectedCall());
       el.acceptBtn.disabled = !hasCall || disabled;
       el.rejectBtn.disabled = !hasCall || disabled;
       el.saveBtn.disabled = !hasCall || disabled;
@@ -1344,9 +2061,25 @@
       return JSON.parse(JSON.stringify(catalog || { groups: [], intents: [] }));
     }
 
-    async function apiJson(url, options) {
-      const response = await fetch(url, options || {});
+    async function apiJson(url, options, withAuth, silentUnauthorized) {
+      const requestOptions = { ...(options || {}) };
+      const needsAuth = withAuth !== false;
+      const headers = new Headers(requestOptions.headers || {});
+
+      if (needsAuth) {
+        if (!state.auth.token) {
+          handleUnauthorized(Boolean(silentUnauthorized));
+          throw new Error('unauthorized');
+        }
+        headers.set('Authorization', 'Bearer ' + state.auth.token);
+      }
+
+      requestOptions.headers = headers;
+      const response = await fetch(url, requestOptions);
       const payload = await safeJson(response);
+      if (response.status === 401 && needsAuth) {
+        handleUnauthorized(Boolean(silentUnauthorized));
+      }
       if (!response.ok) {
         throw new Error(payload && payload.error ? payload.error : 'Request failed');
       }

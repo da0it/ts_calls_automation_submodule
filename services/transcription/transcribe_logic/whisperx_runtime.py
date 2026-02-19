@@ -82,11 +82,19 @@ def _get_pyannote_diarizer(
 
     from whisperx.diarize import DiarizationPipeline
 
-    diarizer = DiarizationPipeline(
-        model_name=model_name,
-        token=token,
-        device=device,
-    )
+    try:
+        diarizer = DiarizationPipeline(
+            model_name=model_name,
+            token=token,
+            device=device,
+        )
+    except TypeError:
+        # Newer/older whisperx versions differ in auth argument name.
+        diarizer = DiarizationPipeline(
+            model_name=model_name,
+            use_auth_token=token,
+            device=device,
+        )
     _DIARIZE_CACHE[key] = diarizer
     return diarizer
 

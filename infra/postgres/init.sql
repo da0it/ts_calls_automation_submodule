@@ -28,3 +28,16 @@ CREATE INDEX IF NOT EXISTS idx_tickets_priority   ON tickets (priority);
 CREATE INDEX IF NOT EXISTS idx_tickets_assignee   ON tickets (assignee_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON tickets (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tickets_intent_id  ON tickets (intent_id);
+
+-- Таблица пользователей для авторизации
+CREATE TABLE IF NOT EXISTS users (
+    id          BIGSERIAL    PRIMARY KEY,
+    username    VARCHAR(64)  NOT NULL UNIQUE,
+    password    VARCHAR(128) NOT NULL,
+    role        VARCHAR(16)  NOT NULL DEFAULT 'operator'
+                CHECK (role IN ('operator', 'admin')),
+    created_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);

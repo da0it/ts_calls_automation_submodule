@@ -45,7 +45,8 @@ This script creates:
 
 - `.venv` for entity extraction
 - `services/router/venv`
-- `~/whisper-diarization/whisper_venv`
+- `~/whisperx_venv` (WhisperX runtime)
+- optional `~/whisper-diarization` only if `INSTALL_NEMO_BACKEND=1`
 - installs Python/Go dependencies
 
 ## 5. Smoke run

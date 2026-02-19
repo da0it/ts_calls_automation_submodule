@@ -40,31 +40,41 @@ type FeedbackFinalRouting struct {
 	Group    string `json:"group"`
 }
 
+type FeedbackTranscriptSegment struct {
+	Start   float64 `json:"start,omitempty"`
+	End     float64 `json:"end,omitempty"`
+	Speaker string  `json:"speaker,omitempty"`
+	Role    string  `json:"role,omitempty"`
+	Text    string  `json:"text,omitempty"`
+}
+
 type RoutingFeedbackRequest struct {
-	CallID         string               `json:"call_id"`
-	SourceFilename string               `json:"source_filename,omitempty"`
-	Decision       string               `json:"decision"`
-	ErrorType      string               `json:"error_type,omitempty"`
-	Comment        string               `json:"comment,omitempty"`
-	TranscriptText string               `json:"transcript_text,omitempty"`
-	TrainingSample string               `json:"training_sample,omitempty"`
-	AI             FeedbackAISuggestion `json:"ai"`
-	Final          FeedbackFinalRouting `json:"final"`
+	CallID             string                      `json:"call_id"`
+	SourceFilename     string                      `json:"source_filename,omitempty"`
+	Decision           string                      `json:"decision"`
+	ErrorType          string                      `json:"error_type,omitempty"`
+	Comment            string                      `json:"comment,omitempty"`
+	TranscriptText     string                      `json:"transcript_text,omitempty"`
+	TranscriptSegments []FeedbackTranscriptSegment `json:"transcript_segments,omitempty"`
+	TrainingSample     string                      `json:"training_sample,omitempty"`
+	AI                 FeedbackAISuggestion        `json:"ai"`
+	Final              FeedbackFinalRouting        `json:"final"`
 }
 
 type RoutingFeedbackRecord struct {
-	ID               string               `json:"id"`
-	CreatedAt        string               `json:"created_at"`
-	CallID           string               `json:"call_id"`
-	SourceFilename   string               `json:"source_filename,omitempty"`
-	Decision         string               `json:"decision"`
-	ErrorType        string               `json:"error_type,omitempty"`
-	Comment          string               `json:"comment,omitempty"`
-	TranscriptText   string               `json:"transcript_text,omitempty"`
-	AI               FeedbackAISuggestion `json:"ai"`
-	Final            FeedbackFinalRouting `json:"final"`
-	AutoLearnApplied bool                 `json:"auto_learn_applied"`
-	AutoLearnMessage string               `json:"auto_learn_message,omitempty"`
+	ID                 string                      `json:"id"`
+	CreatedAt          string                      `json:"created_at"`
+	CallID             string                      `json:"call_id"`
+	SourceFilename     string                      `json:"source_filename,omitempty"`
+	Decision           string                      `json:"decision"`
+	ErrorType          string                      `json:"error_type,omitempty"`
+	Comment            string                      `json:"comment,omitempty"`
+	TranscriptText     string                      `json:"transcript_text,omitempty"`
+	TranscriptSegments []FeedbackTranscriptSegment `json:"transcript_segments,omitempty"`
+	AI                 FeedbackAISuggestion        `json:"ai"`
+	Final              FeedbackFinalRouting        `json:"final"`
+	AutoLearnApplied   bool                        `json:"auto_learn_applied"`
+	AutoLearnMessage   string                      `json:"auto_learn_message,omitempty"`
 }
 
 type RoutingFeedbackService struct {
@@ -203,6 +213,10 @@ func (s *RoutingFeedbackService) normalizeAndValidate(input RoutingFeedbackReque
 		ErrorType:      errorType,
 		Comment:        normalizePlainText(input.Comment),
 		TranscriptText: normalizeLongText(input.TranscriptText, 8000),
+		TranscriptSegments: normalizeTranscriptSegments(
+			input.TranscriptSegments,
+			160,
+		),
 		AI: FeedbackAISuggestion{
 			IntentID:   strings.TrimSpace(input.AI.IntentID),
 			Confidence: input.AI.Confidence,
@@ -247,6 +261,51 @@ func normalizeLongText(value string, limit int) string {
 		return text
 	}
 	return strings.TrimSpace(text[:limit])
+}
+
+func normalizeTranscriptSegments(items []FeedbackTranscriptSegment, maxItems int) []FeedbackTranscriptSegment {
+	if len(items) == 0 {
+		return nil
+	}
+	if maxItems <= 0 {
+		maxItems = 160
+	}
+
+	out := make([]FeedbackTranscriptSegment, 0, min(len(items), maxItems))
+	for _, item := range items {
+		text := normalizeLongText(item.Text, 420)
+		if text == "" {
+			continue
+		}
+
+		start := item.Start
+		if start < 0 {
+			start = 0
+		}
+		end := item.End
+		if end < 0 {
+			end = 0
+		}
+		if end < start {
+			end = start
+		}
+
+		out = append(out, FeedbackTranscriptSegment{
+			Start:   start,
+			End:     end,
+			Speaker: normalizeLongText(item.Speaker, 64),
+			Role:    normalizeLongText(item.Role, 32),
+			Text:    text,
+		})
+		if len(out) >= maxItems {
+			break
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func buildSampleFromTranscript(transcript string) string {

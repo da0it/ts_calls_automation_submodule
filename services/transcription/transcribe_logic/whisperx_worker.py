@@ -20,7 +20,18 @@ def _patch_torch_safe_globals() -> None:
             return
         from omegaconf.dictconfig import DictConfig
         from omegaconf.listconfig import ListConfig
-        add_safe_globals([ListConfig, DictConfig])
+        from torch.torch_version import TorchVersion
+
+        safe_globals = [ListConfig, DictConfig, TorchVersion]
+        try:
+            from pyannote.audio.core.task import Problem, Resolution, Specifications
+
+            safe_globals.extend([Specifications, Problem, Resolution])
+        except Exception:
+            # pyannote might be absent in some runtime setups.
+            pass
+
+        add_safe_globals(safe_globals)
     except Exception:
         # Best-effort compatibility patch. Ignore if unavailable.
         return
@@ -293,11 +304,19 @@ def main() -> None:
             if not args.hf_token:
                 raise RuntimeError("HF token is required for whisperx diarization")
             from whisperx.diarize import DiarizationPipeline
-            diarize_model = DiarizationPipeline(
-                model_name=args.diarize_model,
-                token=args.hf_token,
-                device=args.device,
-            )
+            try:
+                diarize_model = DiarizationPipeline(
+                    model_name=args.diarize_model,
+                    token=args.hf_token,
+                    device=args.device,
+                )
+            except TypeError:
+                # Newer/older whisperx versions differ in auth argument name.
+                diarize_model = DiarizationPipeline(
+                    model_name=args.diarize_model,
+                    use_auth_token=args.hf_token,
+                    device=args.device,
+                )
             diarize_segments = diarize_model(audio)
             result = whisperx.assign_word_speakers(diarize_segments, result)
 
