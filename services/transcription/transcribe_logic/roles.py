@@ -31,6 +31,149 @@ def _sanitize_role(role: str | None) -> str:
     return ROLE_UNKNOWN
 
 
+def _segment_duration(seg: Dict[str, Any]) -> float:
+    s = float(seg.get("start", 0.0))
+    e = float(seg.get("end", s))
+    return max(0.0, e - s)
+
+
+def _is_short_utterance(seg: Dict[str, Any]) -> bool:
+    text = _norm_text(str(seg.get("text", "") or ""))
+    if not text:
+        return True
+    words = [w for w in text.split(" ") if w]
+    dur = _segment_duration(seg)
+    if dur <= CFG.role.short_utt_max_dur and len(words) <= CFG.role.short_utt_max_words:
+        return True
+    if text in CFG.role.short_utt_texts:
+        return True
+    return False
+
+
+def _opening_role_hint(text: str) -> Tuple[float, float]:
+    """
+    Возвращает (answerer_bonus, caller_bonus) для стартовых фраз.
+    """
+    t = _norm_text(text)
+    if not t:
+        return 0.0, 0.0
+
+    answerer_bonus = 0.0
+    caller_bonus = 0.0
+
+    if re.search(r"\b(здравств|добрый день|добрый вечер|доброе утро)\b", t):
+        answerer_bonus += 0.3
+    if re.search(r"\b(чем .*могу .*помочь|слушаю вас|как .*помочь)\b", t):
+        answerer_bonus += 1.2
+    if re.search(r"\b(компания|служба|поддержк|оператор)\b", t):
+        answerer_bonus += 0.5
+
+    if re.search(r"\b(я звоню|меня зовут|представляю|интересует|подскажите)\b", t):
+        caller_bonus += 0.6
+    if re.search(r"\b(вопрос|нужно|хочу|проблем|ошибк|заказ)\b", t):
+        caller_bonus += 0.4
+
+    return answerer_bonus, caller_bonus
+
+
+def _opening_sentence_score(text: str) -> float:
+    t = _norm_text(text)
+    if not t:
+        return 0.0
+
+    score = float(_count_hits(t, CFG.role.opening_phrases))
+    if re.search(r"\b(меня зовут|вас приветствует)\b", t):
+        score += 0.9
+    if re.search(r"\b(чем .*могу .*помочь|как .*могу .*помочь)\b", t):
+        score += 1.1
+    if re.search(r"\b(из компании|компания|служба поддержки|оператор)\b", t):
+        score += 0.6
+    if re.search(r"\b(это .* из|беспокоит .* из)\b", t):
+        score += 0.4
+    return score
+
+
+def _detect_opening_speakers(
+    segments: List[Dict[str, Any]],
+    speakers: List[Any],
+) -> List[Any]:
+    if not segments or not speakers:
+        return []
+
+    max_start = float(max(1.0, CFG.role.opening_max_start_sec))
+    opening_stats: Dict[Any, Dict[str, float]] = {}
+    for seg in segments:
+        spk = seg.get("speaker")
+        if spk not in speakers:
+            continue
+        start = float(seg.get("start", 0.0))
+        if start > max_start:
+            continue
+        if _is_short_utterance(seg):
+            continue
+        text = str(seg.get("text", "") or "")
+        score = _opening_sentence_score(text)
+        if score <= 0.0:
+            continue
+
+        bucket = opening_stats.setdefault(spk, {"best": 0.0, "sum": 0.0, "count": 0.0, "first": 1e9})
+        bucket["best"] = max(bucket["best"], score)
+        bucket["sum"] += score
+        bucket["count"] += 1.0
+        bucket["first"] = min(bucket["first"], start)
+
+    if not opening_stats:
+        return []
+
+    scored: List[Tuple[float, Any]] = []
+    for spk, st in opening_stats.items():
+        # "best opening sentence" — главный сигнал; sum/count — вспомогательные.
+        composite = st["best"] + 0.2 * st["sum"] + 0.15 * st["count"]
+        scored.append((composite, spk))
+    scored.sort(reverse=True)
+
+    best_score = scored[0][0]
+    if best_score < float(CFG.role.opening_min_score):
+        return []
+
+    threshold = max(
+        float(CFG.role.opening_min_score),
+        best_score - float(CFG.role.opening_near_best_delta),
+    )
+    return [spk for score, spk in scored if score >= threshold]
+
+
+def _speaker_map_from_segments(
+    segments: List[Dict[str, Any]],
+    fallback_map: Dict[str, str],
+) -> Dict[str, str]:
+    per_speaker_dur: Dict[str, Dict[str, float]] = {}
+    for seg in segments:
+        spk = seg.get("speaker")
+        if spk is None:
+            continue
+        role = _sanitize_role(seg.get("role"))
+        dur = _segment_duration(seg)
+        bucket = per_speaker_dur.setdefault(spk, {})
+        bucket[role] = bucket.get(role, 0.0) + dur
+
+    updated_map: Dict[str, str] = {}
+    for spk, role_dur in per_speaker_dur.items():
+        if not role_dur:
+            updated_map[spk] = _sanitize_role(fallback_map.get(spk))
+            continue
+        base_role = _sanitize_role(fallback_map.get(spk))
+        best_role = max(
+            role_dur.items(),
+            key=lambda item: (item[1], 1 if item[0] == base_role else 0),
+        )[0]
+        updated_map[spk] = _sanitize_role(best_role)
+
+    for spk, role in fallback_map.items():
+        updated_map.setdefault(spk, _sanitize_role(role))
+    return updated_map
+
+
 def infer_role_map_from_segments(
     segments: List[Dict[str, Any]],
     intro_window_sec: float | None = None,
@@ -65,8 +208,8 @@ def infer_role_map_from_segments(
         if spk not in stats:
             continue
         s = float(seg.get("start", 0.0))
-        e = float(seg.get("end", s))
-        dur = max(0.0, e - s)
+        dur = _segment_duration(seg)
+        e = s + dur
         stats[spk]["total"] += dur
         stats[spk]["first"] = min(stats[spk]["first"], s)
 
@@ -83,6 +226,13 @@ def infer_role_map_from_segments(
         stats[spk]["id_hits"] += 1.0 if re.search(r"\b\d{5,}\b", text) else 0.0
         stats[spk]["question_hits"] += text.count("?")
 
+        # Старт звонка несет максимальный сигнал о роли.
+        if s <= intro_window_sec:
+            ans_bonus, call_bonus = _opening_role_hint(text)
+            pos_weight = max(0.35, 1.0 - (s / max(1e-6, intro_window_sec)))
+            stats[spk]["ans_hits"] += ans_bonus * pos_weight
+            stats[spk]["call_hits"] += call_bonus * pos_weight
+
     # 1) Если явно IVR-like реплики, не пытаемся насильно относить к caller/answerer.
     role_map: Dict[str, str] = {}
     forced_unknown = set()
@@ -91,12 +241,42 @@ def infer_role_map_from_segments(
         if ivr_score >= 2 and stats[spk]["early"] > 0.0 and stats[spk]["total"] < 30.0:
             role_map[spk] = ROLE_UNKNOWN
             forced_unknown.add(spk)
+            continue
+        # Слишком короткая речь без лексических сигналов -> не определено.
+        weak_signal = (
+            stats[spk]["ans_hits"] <= 0.0
+            and stats[spk]["call_hits"] <= 0.0
+            and stats[spk]["question_hits"] <= 0.0
+            and stats[spk]["id_hits"] <= 0.0
+        )
+        if stats[spk]["total"] < CFG.role.min_role_turn and weak_signal:
+            role_map[spk] = ROLE_UNKNOWN
+            forced_unknown.add(spk)
 
     cand = [spk for spk in speakers if spk not in forced_unknown]
     if not cand:
         return role_map
     if len(cand) == 1:
         role_map[cand[0]] = ROLE_UNKNOWN
+        return role_map
+
+    opening_agents = _detect_opening_speakers(segments, cand)
+    if opening_agents and len(opening_agents) < len(cand):
+        opening_set = set(opening_agents)
+        for spk in cand:
+            if spk in opening_set:
+                role_map.setdefault(spk, ROLE_ANSWERER)
+            else:
+                # В call-centre сценарии остальные чаще являются клиентами.
+                # Но если по статистике speaker выглядит как "агент", оставляем unknown.
+                ans = stats[spk]["ans_hits"]
+                call = stats[spk]["call_hits"]
+                if ans > call + 1.5:
+                    role_map.setdefault(spk, ROLE_UNKNOWN)
+                else:
+                    role_map.setdefault(spk, ROLE_CALLER)
+        for spk in speakers:
+            role_map.setdefault(spk, ROLE_UNKNOWN)
         return role_map
 
     # Нормировки
@@ -217,50 +397,57 @@ def assign_roles_to_segments(
     Роли ограничены: "звонящий"/"ответчик"/"не определено".
     Возвращает обновленный speaker->role map (по длительности сегментов).
     """
-    per_speaker_dur: Dict[str, Dict[str, float]] = {}
+    seg_debug: List[Tuple[float, float, float, float]] = []
 
     for seg in segments:
         spk = seg.get("speaker")
         base_role = _sanitize_role(speaker_role_map.get(spk))
         text = str(seg.get("text", "") or "")
         caller_score, answerer_score, ivr_score = _segment_role_scores(text)
+        dur = _segment_duration(seg)
+        is_short = _is_short_utterance(seg)
 
         role = base_role
         delta = caller_score - answerer_score
+        strong_delta = 0.9 if dur >= 2.5 else 1.2
+        weak_delta = 0.35 if dur >= 2.5 else 0.5
         if ivr_score >= 2.0:
             role = ROLE_UNKNOWN
-        elif delta >= 1.2:
+        elif is_short and base_role != ROLE_UNKNOWN and abs(delta) < strong_delta:
+            role = base_role
+        elif delta >= strong_delta:
             role = ROLE_CALLER
-        elif delta <= -1.2:
+        elif delta <= -strong_delta:
             role = ROLE_ANSWERER
-        elif abs(delta) >= 0.5 and base_role != ROLE_UNKNOWN:
+        elif abs(delta) >= weak_delta and base_role != ROLE_UNKNOWN:
             role = base_role
         else:
             role = ROLE_UNKNOWN
 
         seg["role"] = role
+        seg_debug.append((caller_score, answerer_score, ivr_score, delta))
 
+    updated_map = _speaker_map_from_segments(segments, speaker_role_map)
+
+    # Второй проход: стабилизируем сегменты вокруг доминирующей роли speaker-а,
+    # если у сегмента нет сильных противоположных сигналов.
+    for i, seg in enumerate(segments):
+        spk = seg.get("speaker")
         if spk is None:
             continue
-        s = float(seg.get("start", 0.0))
-        e = float(seg.get("end", s))
-        dur = max(0.0, e - s)
-        if spk not in per_speaker_dur:
-            per_speaker_dur[spk] = {}
-        per_speaker_dur[spk][role] = per_speaker_dur[spk].get(role, 0.0) + dur
-
-    updated_map: Dict[str, str] = {}
-    for spk, role_dur in per_speaker_dur.items():
-        if not role_dur:
-            updated_map[spk] = _sanitize_role(speaker_role_map.get(spk))
+        dominant = _sanitize_role(updated_map.get(spk))
+        if dominant == ROLE_UNKNOWN:
             continue
-        best_role = max(
-            role_dur.items(),
-            key=lambda item: (item[1], 1 if item[0] == _sanitize_role(speaker_role_map.get(spk)) else 0),
-        )[0]
-        updated_map[spk] = _sanitize_role(best_role)
 
-    for spk, role in speaker_role_map.items():
-        updated_map.setdefault(spk, _sanitize_role(role))
+        caller_score, answerer_score, ivr_score, delta = seg_debug[i]
+        current = _sanitize_role(seg.get("role"))
+        strong_opposite = (
+            (dominant == ROLE_CALLER and delta <= -1.6)
+            or (dominant == ROLE_ANSWERER and delta >= 1.6)
+        )
+        if ivr_score >= 1.5 or strong_opposite:
+            continue
+        if current == ROLE_UNKNOWN or abs(delta) < 1.0:
+            seg["role"] = dominant
 
-    return updated_map
+    return _speaker_map_from_segments(segments, updated_map)
