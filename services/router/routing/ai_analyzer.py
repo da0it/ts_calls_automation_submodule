@@ -15,7 +15,8 @@ from threading import RLock
 
 import torch
 from torch import nn
-from transformers import AutoModel, AutoTokenizer
+from torch.utils.data import DataLoader, TensorDataset
+from transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer
 
 from .models import AIAnalysis, CallInput, Evidence, IntentResult, Priority
 from .nlp_preprocess import PreprocessConfig, build_canonical
@@ -132,6 +133,14 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         preprocess_cfg: Optional[PreprocessConfig] = None,
         tuned_model_path: Optional[str] = None,
         tuned_blend_alpha: float = 0.65,
+        finetuned_enabled: bool = False,
+        finetuned_model_path: Optional[str] = None,
+        finetuned_blend_alpha: float = 0.45,
+        finetuned_learning_rate: float = 2e-5,
+        finetuned_epochs: int = 3,
+        finetuned_batch_size: int = 16,
+        finetuned_max_length: int = 256,
+        finetuned_weight_decay: float = 0.01,
         dialog_head_enabled: bool = True,
         dialog_blend_alpha: float = 0.55,
         dialog_d_model: int = 256,
@@ -146,6 +155,14 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self.min_confidence = min_confidence
         self.max_text_chars = max_text_chars
         self.tuned_blend_alpha = max(0.0, min(1.0, float(tuned_blend_alpha)))
+        self.finetuned_enabled = bool(finetuned_enabled)
+        self.finetuned_model_path = str(finetuned_model_path or "").strip()
+        self.finetuned_blend_alpha = max(0.0, min(1.0, float(finetuned_blend_alpha)))
+        self.finetuned_learning_rate = float(max(1e-6, min(1e-3, finetuned_learning_rate)))
+        self.finetuned_epochs = int(max(1, min(12, finetuned_epochs)))
+        self.finetuned_batch_size = int(max(4, min(64, finetuned_batch_size)))
+        self.finetuned_max_length = int(max(64, min(512, finetuned_max_length)))
+        self.finetuned_weight_decay = float(max(0.0, min(0.2, finetuned_weight_decay)))
         self.dialog_head_enabled = bool(dialog_head_enabled)
         self.dialog_blend_alpha = max(0.0, min(1.0, float(dialog_blend_alpha)))
         self.dialog_d_model = int(max(64, min(1024, dialog_d_model)))
@@ -179,8 +196,12 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self._state_lock = RLock()
         self._tuned_artifact: Optional[Dict[str, Any]] = None
         self._tuned_head: Optional[nn.Linear] = None
+        self._finetuned_model: Optional[AutoModelForSequenceClassification] = None
+        self._finetuned_tokenizer: Optional[Any] = None
         self._dialog_head: Optional[DialogTransformerHead] = None
         self._active_head_intents: Optional[Tuple[str, ...]] = None
+        self._active_finetuned_intents: Optional[Tuple[str, ...]] = None
+        self._active_finetuned_path: str = ""
         self._active_dialog_intents: Optional[Tuple[str, ...]] = None
         self._last_train_report: Optional[Dict[str, Any]] = None
         self._last_train_error: str = ""
@@ -209,6 +230,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
         sim_probs = torch.softmax(sims / 0.15, dim=0)
         tuned_probs, tuned_meta = self._predict_with_tuned_head(q, intent_ids)
+        finetuned_probs, finetuned_meta = self._predict_with_finetuned_model(text, intent_ids)
         dialog_probs, dialog_meta = self._predict_with_dialog_head(call, intent_ids)
 
         final_probs = sim_probs
@@ -217,6 +239,10 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             alpha = self.tuned_blend_alpha
             final_probs = (1.0 - alpha) * sim_probs + alpha * tuned_probs
             confidence_sources.append("linear")
+        if finetuned_probs is not None:
+            alpha = self.finetuned_blend_alpha
+            final_probs = (1.0 - alpha) * final_probs + alpha * finetuned_probs
+            confidence_sources.append("finetuned")
         if dialog_probs is not None:
             alpha = self.dialog_blend_alpha
             final_probs = (1.0 - alpha) * final_probs + alpha * dialog_probs
@@ -237,7 +263,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         best_intent_id = intent_ids[best_idx]
         best_sim = float(sims[best_idx].item())
 
-        if tuned_probs is not None or dialog_probs is not None:
+        if tuned_probs is not None or finetuned_probs is not None or dialog_probs is not None:
             conf = float(final_probs[best_idx].item())
         else:
             conf = self._calculate_confidence(sims, best_idx)
@@ -253,6 +279,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             notes = f"{confidence_source} confidence={conf:.3f}; sim={best_sim:.3f}"
             if tuned_probs is not None and tuned_meta.get("version_id"):
                 notes += f"; tuned_version={tuned_meta['version_id']}"
+            if finetuned_probs is not None and finetuned_meta.get("trained_at"):
+                notes += f"; finetuned_trained_at={finetuned_meta['trained_at']}"
             if dialog_probs is not None and dialog_meta.get("version_id"):
                 notes += f"; dialog_version={dialog_meta['version_id']}"
             if rule_boosts:
@@ -301,6 +329,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "rule_boosts": rule_boosts,
                 "confidence_source": confidence_source,
                 "tuned_model": tuned_meta,
+                "finetuned_model": finetuned_meta,
                 "dialog_model": dialog_meta,
             },
         )
@@ -316,6 +345,12 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "active": False,
                 "reason": "no_tuned_model",
                 "model_path": self.tuned_model_path,
+                "finetuned_model": {
+                    "enabled": self.finetuned_enabled,
+                    "active": False,
+                    "blend_alpha": self.finetuned_blend_alpha,
+                    "model_path": self.finetuned_model_path,
+                },
                 "last_train_report": report,
                 "last_train_error": last_error,
             }
@@ -325,6 +360,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         compatible = current_intents is None or artifact_intents == current_intents
 
         dialog_head = artifact.get("dialog_head") if isinstance(artifact.get("dialog_head"), dict) else {}
+        finetuned_model = artifact.get("finetuned_model") if isinstance(artifact.get("finetuned_model"), dict) else {}
+        finetuned_ready = bool(finetuned_model and finetuned_model.get("enabled"))
         dialog_ready = bool(dialog_head and dialog_head.get("enabled"))
         reason = "ok" if compatible else "intents_mismatch"
         return {
@@ -349,6 +386,13 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "blend_alpha": self.dialog_blend_alpha,
                 "max_turns": self.dialog_max_turns,
                 "metrics": dialog_head.get("metrics", {}),
+            },
+            "finetuned_model": {
+                "enabled": self.finetuned_enabled,
+                "active": compatible and finetuned_ready,
+                "blend_alpha": self.finetuned_blend_alpha,
+                "model_path": finetuned_model.get("model_path", self.finetuned_model_path),
+                "metrics": finetuned_model.get("metrics", {}),
             },
             "last_train_report": report,
             "last_train_error": last_error,
@@ -490,6 +534,29 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                         "error": str(dialog_exc),
                     }
 
+            finetuned_artifact: Dict[str, Any] = {"enabled": False}
+            finetuned_report: Dict[str, Any] = {"enabled": False}
+            if self.finetuned_enabled:
+                try:
+                    finetuned_report, finetuned_artifact = self._train_finetuned_rubert(
+                        texts=texts,
+                        labels=labels,
+                        intent_ids=intent_ids,
+                        train_idx=train_idx,
+                        val_idx=val_idx,
+                        random_seed=random_seed,
+                    )
+                except Exception as finetuned_exc:
+                    logger.warning("RuBERT fine-tuning failed, keeping linear/dialog heads only: %s", finetuned_exc)
+                    finetuned_artifact = {
+                        "enabled": False,
+                        "error": str(finetuned_exc),
+                    }
+                    finetuned_report = {
+                        "enabled": False,
+                        "error": str(finetuned_exc),
+                    }
+
             trained_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             version_id = f"tuned-{int(time.time())}"
             artifact = {
@@ -513,6 +580,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                     "samples_val": len(val_idx),
                 },
                 "dialog_head": dialog_artifact,
+                "finetuned_model": finetuned_artifact,
             }
 
             self._save_tuned_artifact(output_path, artifact)
@@ -527,6 +595,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "metrics": artifact["metrics"],
                 "dataset": artifact["dataset"],
                 "dialog_head": dialog_report,
+                "finetuned_model": finetuned_report,
             }
             self._set_last_train_report(report)
             return report
@@ -539,11 +608,26 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self._load_tuned_artifact_from_disk()
         return self.get_training_status()
 
+    def _clear_tuned_artifact(self) -> None:
+        with self._state_lock:
+            self._tuned_artifact = None
+            self._tuned_head = None
+            self._finetuned_model = None
+            self._finetuned_tokenizer = None
+            self._dialog_head = None
+            self._active_head_intents = None
+            self._active_finetuned_intents = None
+            self._active_finetuned_path = ""
+            self._active_dialog_intents = None
+
     def _load_tuned_artifact_from_disk(self) -> None:
         if not self.tuned_model_path:
+            self._clear_tuned_artifact()
             return
         model_path = Path(self.tuned_model_path)
         if not model_path.exists():
+            self._clear_tuned_artifact()
+            logger.info("No tuned routing head found at %s. Active tuned state cleared.", model_path)
             return
 
         try:
@@ -553,14 +637,19 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             self._activate_tuned_artifact(payload)
             logger.info("Loaded tuned routing head: %s", model_path)
         except Exception as exc:
+            self._clear_tuned_artifact()
             logger.warning("Failed to load tuned routing head from %s: %s", model_path, exc)
 
     def _activate_tuned_artifact(self, artifact: Dict[str, Any]) -> None:
         with self._state_lock:
             self._tuned_artifact = dict(artifact)
             self._tuned_head = None
+            self._finetuned_model = None
+            self._finetuned_tokenizer = None
             self._dialog_head = None
             self._active_head_intents = None
+            self._active_finetuned_intents = None
+            self._active_finetuned_path = ""
             self._active_dialog_intents = None
 
     def _set_last_train_report(self, report: Dict[str, Any]) -> None:
@@ -612,6 +701,55 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             }
         except Exception as exc:
             logger.warning("Failed to run tuned routing head: %s", exc)
+            return None, {"active": False, "reason": f"runtime_error:{exc}"}
+
+    def _predict_with_finetuned_model(
+        self,
+        text: str,
+        intent_ids: List[str],
+    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
+        if not self.finetuned_enabled:
+            return None, {"active": False, "reason": "finetuned_disabled"}
+
+        with self._state_lock:
+            artifact = dict(self._tuned_artifact or {})
+
+        if not artifact:
+            return None, {"active": False, "reason": "no_tuned_model"}
+
+        finetuned_meta = artifact.get("finetuned_model")
+        if not isinstance(finetuned_meta, dict) or not finetuned_meta.get("enabled"):
+            return None, {"active": False, "reason": "no_finetuned_model"}
+
+        artifact_intents = list(artifact.get("intent_ids") or [])
+        if artifact_intents != intent_ids:
+            return None, {
+                "active": False,
+                "reason": "intents_mismatch",
+                "artifact_intents_n": len(artifact_intents),
+                "runtime_intents_n": len(intent_ids),
+            }
+
+        try:
+            model, tokenizer, max_len = self._ensure_finetuned_model_loaded(artifact, intent_ids)
+            enc = tokenizer(
+                [text],
+                truncation=True,
+                padding=True,
+                max_length=max_len,
+                return_tensors="pt",
+            )
+            enc = {k: v.to(self.device) for k, v in enc.items()}
+            with torch.inference_mode():
+                logits = model(**enc).logits
+                probs = torch.softmax(logits, dim=1).squeeze(0)
+            return probs, {
+                "active": True,
+                "trained_at": finetuned_meta.get("trained_at", ""),
+                "model_path": finetuned_meta.get("model_path", ""),
+            }
+        except Exception as exc:
+            logger.warning("Failed to run fine-tuned RuBERT head: %s", exc)
             return None, {"active": False, "reason": f"runtime_error:{exc}"}
 
     def _predict_with_dialog_head(
@@ -694,6 +832,45 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             self._tuned_head = head
             self._active_head_intents = intent_key
             return head
+
+    def _ensure_finetuned_model_loaded(
+        self,
+        artifact: Dict[str, Any],
+        intent_ids: List[str],
+    ) -> Tuple[AutoModelForSequenceClassification, Any, int]:
+        intent_key = tuple(intent_ids)
+        finetuned_artifact = artifact.get("finetuned_model")
+        if not isinstance(finetuned_artifact, dict):
+            raise RuntimeError("finetuned model metadata is missing")
+        model_path = str(finetuned_artifact.get("model_path") or "").strip()
+        if not model_path:
+            raise RuntimeError("finetuned model path is empty")
+
+        with self._state_lock:
+            if (
+                self._finetuned_model is not None
+                and self._finetuned_tokenizer is not None
+                and self._active_finetuned_intents == intent_key
+                and self._active_finetuned_path == model_path
+            ):
+                max_len = int(finetuned_artifact.get("max_length") or self.finetuned_max_length)
+                return self._finetuned_model, self._finetuned_tokenizer, max_len
+
+            model = AutoModelForSequenceClassification.from_pretrained(model_path).to(self.device)
+            model.eval()
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+            if int(model.config.num_labels) != len(intent_ids):
+                raise RuntimeError(
+                    f"finetuned model classes mismatch: model={int(model.config.num_labels)} runtime={len(intent_ids)}"
+                )
+
+            self._finetuned_model = model
+            self._finetuned_tokenizer = tokenizer
+            self._active_finetuned_intents = intent_key
+            self._active_finetuned_path = model_path
+            max_len = int(finetuned_artifact.get("max_length") or self.finetuned_max_length)
+            return model, tokenizer, max_len
 
     def _ensure_dialog_head_loaded(self, artifact: Dict[str, Any], intent_ids: List[str]) -> DialogTransformerHead:
         intent_key = tuple(intent_ids)
@@ -1171,6 +1348,187 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             "dataset": report["dataset"],
         }
         return report, artifact
+
+    def _train_finetuned_rubert(
+        self,
+        *,
+        texts: List[str],
+        labels: List[int],
+        intent_ids: List[str],
+        train_idx: List[int],
+        val_idx: List[int],
+        random_seed: int,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        model_path = str(self.finetuned_model_path or "").strip()
+        if not model_path:
+            raise RuntimeError("ROUTER_FINETUNED_MODEL_PATH is empty")
+
+        if not train_idx:
+            raise RuntimeError("empty train set for fine-tuned model")
+        if not val_idx:
+            val_idx = list(train_idx)
+
+        train_texts = [texts[i] for i in train_idx]
+        val_texts = [texts[i] for i in val_idx]
+        train_labels = torch.tensor([labels[i] for i in train_idx], dtype=torch.long)
+        val_labels = torch.tensor([labels[i] for i in val_idx], dtype=torch.long)
+
+        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        train_enc = tokenizer(
+            train_texts,
+            truncation=True,
+            padding=True,
+            max_length=self.finetuned_max_length,
+            return_tensors="pt",
+        )
+        val_enc = tokenizer(
+            val_texts,
+            truncation=True,
+            padding=True,
+            max_length=self.finetuned_max_length,
+            return_tensors="pt",
+        )
+
+        train_ds = TensorDataset(train_enc["input_ids"], train_enc["attention_mask"], train_labels)
+        val_ds = TensorDataset(val_enc["input_ids"], val_enc["attention_mask"], val_labels)
+
+        batch_size = int(max(4, min(64, self.finetuned_batch_size)))
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+
+        model = AutoModelForSequenceClassification.from_pretrained(
+            self.model_name,
+            num_labels=len(intent_ids),
+        ).to(self.device)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=float(self.finetuned_learning_rate),
+            weight_decay=float(self.finetuned_weight_decay),
+        )
+        class_weights = self._build_class_weights(train_labels, len(intent_ids)).to(self.device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+        torch.manual_seed(int(random_seed))
+        random.seed(int(random_seed))
+
+        best_state = None
+        best_val_f1 = -1.0
+        best_epoch = 0
+        patience = 2
+        no_improve = 0
+
+        epochs = int(max(1, min(12, self.finetuned_epochs)))
+        for epoch in range(1, epochs + 1):
+            model.train()
+            for input_ids, attention_mask, yb in train_loader:
+                input_ids = input_ids.to(self.device)
+                attention_mask = attention_mask.to(self.device)
+                yb = yb.to(self.device)
+
+                optimizer.zero_grad(set_to_none=True)
+                logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+                loss = criterion(logits, yb)
+                loss.backward()
+                optimizer.step()
+
+            val_metrics = self._evaluate_finetuned(model, val_loader, criterion)
+            val_f1 = float(val_metrics.get("macro_f1", 0.0))
+            if val_f1 > best_val_f1 + 1e-6:
+                best_val_f1 = val_f1
+                best_epoch = epoch
+                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                no_improve = 0
+            else:
+                no_improve += 1
+            if no_improve >= patience:
+                break
+
+        if best_state is None:
+            raise RuntimeError("fine-tuning failed: no best checkpoint")
+
+        model.load_state_dict(best_state)
+        train_eval_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=False)
+        train_metrics = self._evaluate_finetuned(model, train_eval_loader, criterion)
+        val_metrics = self._evaluate_finetuned(model, val_loader, criterion)
+
+        save_dir = Path(model_path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(str(save_dir))
+        tokenizer.save_pretrained(str(save_dir))
+
+        trained_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        meta_payload = {
+            "model_name": self.model_name,
+            "intent_ids": intent_ids,
+            "trained_at": trained_at,
+            "max_length": self.finetuned_max_length,
+            "epochs": epochs,
+            "learning_rate": self.finetuned_learning_rate,
+            "batch_size": batch_size,
+        }
+        (save_dir / "intent_ids.json").write_text(
+            json.dumps(meta_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        report = {
+            "enabled": True,
+            "best_epoch": best_epoch,
+            "model_path": str(save_dir),
+            "metrics": {
+                "train": train_metrics,
+                "val": val_metrics,
+                "epochs_requested": epochs,
+            },
+            "dataset": {
+                "samples_total": len(texts),
+                "samples_train": len(train_idx),
+                "samples_val": len(val_idx),
+            },
+        }
+        artifact = {
+            "enabled": True,
+            "model_path": str(save_dir),
+            "intent_ids": intent_ids,
+            "trained_at": trained_at,
+            "max_length": self.finetuned_max_length,
+            "metrics": report["metrics"],
+            "dataset": report["dataset"],
+        }
+        return report, artifact
+
+    def _evaluate_finetuned(
+        self,
+        model: AutoModelForSequenceClassification,
+        loader: DataLoader,
+        criterion: nn.Module,
+    ) -> Dict[str, float]:
+        model.eval()
+        losses: List[float] = []
+        preds: List[torch.Tensor] = []
+        targets: List[torch.Tensor] = []
+        with torch.inference_mode():
+            for input_ids, attention_mask, yb in loader:
+                input_ids = input_ids.to(self.device)
+                attention_mask = attention_mask.to(self.device)
+                yb = yb.to(self.device)
+                logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+                loss = criterion(logits, yb)
+                losses.append(float(loss.item()))
+                preds.append(torch.argmax(logits, dim=1).detach().cpu())
+                targets.append(yb.detach().cpu())
+
+        pred = torch.cat(preds, dim=0) if preds else torch.empty(0, dtype=torch.long)
+        target = torch.cat(targets, dim=0) if targets else torch.empty(0, dtype=torch.long)
+        acc = float((pred == target).float().mean().item()) if target.numel() > 0 else 0.0
+        macro_precision, macro_recall, macro_f1 = self._macro_precision_recall_f1(pred, target)
+        return {
+            "loss": round(sum(losses) / max(1, len(losses)), 6),
+            "accuracy": round(acc, 6),
+            "macro_precision": round(macro_precision, 6),
+            "macro_recall": round(macro_recall, 6),
+            "macro_f1": round(macro_f1, 6),
+        }
 
     def _embed_batched(self, texts: List[str], batch_size: int = 64) -> torch.Tensor:
         chunks: List[torch.Tensor] = []

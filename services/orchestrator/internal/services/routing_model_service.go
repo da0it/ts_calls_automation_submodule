@@ -64,6 +64,10 @@ func (s *RoutingModelService) GetStatus() (map[string]any, error) {
 	return s.requestJSON(http.MethodGet, "/admin/model/status", nil)
 }
 
+func (s *RoutingModelService) Reload() (map[string]any, error) {
+	return s.requestJSON(http.MethodPost, "/admin/model/reload", map[string]any{})
+}
+
 func (s *RoutingModelService) Train(req RoutingModelTrainRequest) (map[string]any, error) {
 	return s.requestJSON(http.MethodPost, "/admin/model/train", req)
 }

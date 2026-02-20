@@ -900,6 +900,18 @@
       }
     }
 
+    async function reloadRoutingModelStatus(silent) {
+      try {
+        const payload = await apiJson('/api/v1/routing-model/reload', { method: 'POST' });
+        state.routingModelStatus = payload;
+      } catch (err) {
+        if (!silent) {
+          setBanner('Routing model reload failed.', 'error');
+        }
+        throw err;
+      }
+    }
+
     async function loadUsers(silent) {
       if (!isAdmin()) {
         state.users = [];
@@ -1253,6 +1265,13 @@
       const dialogAccuracy = dialogValMetrics && typeof dialogValMetrics.accuracy === 'number' ? dialogValMetrics.accuracy.toFixed(3) : '-';
       const dialogPrecision = dialogValMetrics && typeof dialogValMetrics.macro_precision === 'number' ? dialogValMetrics.macro_precision.toFixed(3) : '-';
       const dialogRecall = dialogValMetrics && typeof dialogValMetrics.macro_recall === 'number' ? dialogValMetrics.macro_recall.toFixed(3) : '-';
+      const finetunedValMetrics = trainReport.finetuned_model && trainReport.finetuned_model.metrics && trainReport.finetuned_model.metrics.val
+        ? trainReport.finetuned_model.metrics.val
+        : null;
+      const finetunedF1 = finetunedValMetrics && typeof finetunedValMetrics.macro_f1 === 'number' ? finetunedValMetrics.macro_f1.toFixed(3) : '-';
+      const finetunedAccuracy = finetunedValMetrics && typeof finetunedValMetrics.accuracy === 'number' ? finetunedValMetrics.accuracy.toFixed(3) : '-';
+      const finetunedPrecision = finetunedValMetrics && typeof finetunedValMetrics.macro_precision === 'number' ? finetunedValMetrics.macro_precision.toFixed(3) : '-';
+      const finetunedRecall = finetunedValMetrics && typeof finetunedValMetrics.macro_recall === 'number' ? finetunedValMetrics.macro_recall.toFixed(3) : '-';
       const trainBusy = Boolean(modelStatus.training_in_progress || state.routingModelBusy);
       const groupFormClass = state.showAddGroupForm ? 'collapsible-form' : 'collapsible-form hidden';
       const intentFormClass = state.showAddIntentForm ? 'collapsible-form' : 'collapsible-form hidden';
@@ -1274,6 +1293,7 @@
             <strong>Version:</strong> ${escapeHtml(modelVersion)}<br />
             <strong>Trained at:</strong> ${escapeHtml(modelTrainedAt)}<br />
             <strong>Last train val (linear):</strong> acc=${escapeHtml(String(trainAccuracy))}, p=${escapeHtml(String(trainPrecision))}, r=${escapeHtml(String(trainRecall))}, f1=${escapeHtml(String(trainF1))}<br />
+            <strong>Last train val (finetuned):</strong> acc=${escapeHtml(String(finetunedAccuracy))}, p=${escapeHtml(String(finetunedPrecision))}, r=${escapeHtml(String(finetunedRecall))}, f1=${escapeHtml(String(finetunedF1))}<br />
             <strong>Last train val (dialog):</strong> acc=${escapeHtml(String(dialogAccuracy))}, p=${escapeHtml(String(dialogPrecision))}, r=${escapeHtml(String(dialogRecall))}, f1=${escapeHtml(String(dialogF1))}<br />
             <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}<br />
             <strong>CSV columns:</strong> <code>final_intent_id</code> or <code>intent_id</code>, and <code>training_sample</code> or <code>text</code> (optional: <code>transcript_text</code>, <code>transcript_segments</code> JSON)
@@ -1546,9 +1566,10 @@
       const refreshModelBtn = document.getElementById('refresh-routing-model-btn');
       if (refreshModelBtn) {
         refreshModelBtn.addEventListener('click', async () => {
-          await loadRoutingModelStatus(false);
+          await reloadRoutingModelStatus(false);
+          await loadRoutingModelStatus(true);
           render();
-          setBanner('Routing model status refreshed.', 'ok');
+          setBanner('Routing model cache reloaded and status refreshed.', 'ok');
         });
       }
 

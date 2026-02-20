@@ -221,6 +221,7 @@ func setupRouter(
 			admin.DELETE("/routing-config/groups/:id", h.DeleteRoutingGroup)
 			admin.POST("/routing-config/intents", h.CreateRoutingIntent)
 			admin.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
+			admin.POST("/routing-model/reload", h.ReloadRoutingModel)
 			admin.POST("/routing-model/train", h.TrainRoutingModel)
 			admin.POST("/routing-model/train-csv", h.TrainRoutingModelCSV)
 

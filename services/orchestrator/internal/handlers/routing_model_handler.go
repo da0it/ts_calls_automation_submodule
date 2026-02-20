@@ -33,6 +33,20 @@ func (h *ProcessHandler) GetRoutingModelStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+func (h *ProcessHandler) ReloadRoutingModel(c *gin.Context) {
+	if h.routingModelService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing model service is not configured"})
+		return
+	}
+
+	status, err := h.routingModelService.Reload()
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
 func (h *ProcessHandler) TrainRoutingModel(c *gin.Context) {
 	if h.routingModelService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing model service is not configured"})

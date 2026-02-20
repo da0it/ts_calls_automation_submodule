@@ -146,7 +146,7 @@ func (h *ProcessHandler) Root(c *gin.Context) {
 			"routing_groups":   "POST/DELETE /api/v1/routing-config/groups",
 			"routing_intents":  "POST/DELETE /api/v1/routing-config/intents",
 			"routing_feedback": "POST /api/v1/routing-feedback",
-			"routing_model":    "GET /api/v1/routing-model/status, POST /api/v1/routing-model/train, POST /api/v1/routing-model/train-csv",
+			"routing_model":    "GET /api/v1/routing-model/status, POST /api/v1/routing-model/reload, POST /api/v1/routing-model/train, POST /api/v1/routing-model/train-csv",
 			"health":           "GET /health",
 			"docs":             "GET /docs (если включен Swagger)",
 		},
