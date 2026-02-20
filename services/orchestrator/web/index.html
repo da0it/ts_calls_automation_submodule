@@ -1241,9 +1241,18 @@
       const modelTrainedAt = tuned.trained_at || '-';
       const trainReport = tuned.last_train_report || {};
       const trainSamples = trainReport.dataset && trainReport.dataset.samples_total ? trainReport.dataset.samples_total : '-';
-      const trainF1 = trainReport.metrics && trainReport.metrics.val && typeof trainReport.metrics.val.macro_f1 === 'number'
-        ? trainReport.metrics.val.macro_f1.toFixed(3)
-        : '-';
+      const valMetrics = trainReport.metrics && trainReport.metrics.val ? trainReport.metrics.val : {};
+      const trainF1 = typeof valMetrics.macro_f1 === 'number' ? valMetrics.macro_f1.toFixed(3) : '-';
+      const trainAccuracy = typeof valMetrics.accuracy === 'number' ? valMetrics.accuracy.toFixed(3) : '-';
+      const trainPrecision = typeof valMetrics.macro_precision === 'number' ? valMetrics.macro_precision.toFixed(3) : '-';
+      const trainRecall = typeof valMetrics.macro_recall === 'number' ? valMetrics.macro_recall.toFixed(3) : '-';
+      const dialogValMetrics = trainReport.dialog_head && trainReport.dialog_head.metrics && trainReport.dialog_head.metrics.val
+        ? trainReport.dialog_head.metrics.val
+        : null;
+      const dialogF1 = dialogValMetrics && typeof dialogValMetrics.macro_f1 === 'number' ? dialogValMetrics.macro_f1.toFixed(3) : '-';
+      const dialogAccuracy = dialogValMetrics && typeof dialogValMetrics.accuracy === 'number' ? dialogValMetrics.accuracy.toFixed(3) : '-';
+      const dialogPrecision = dialogValMetrics && typeof dialogValMetrics.macro_precision === 'number' ? dialogValMetrics.macro_precision.toFixed(3) : '-';
+      const dialogRecall = dialogValMetrics && typeof dialogValMetrics.macro_recall === 'number' ? dialogValMetrics.macro_recall.toFixed(3) : '-';
       const trainBusy = Boolean(modelStatus.training_in_progress || state.routingModelBusy);
       const groupFormClass = state.showAddGroupForm ? 'collapsible-form' : 'collapsible-form hidden';
       const intentFormClass = state.showAddIntentForm ? 'collapsible-form' : 'collapsible-form hidden';
@@ -1255,13 +1264,19 @@
             <button id="refresh-routing-model-btn" class="btn btn-ghost btn-mini" type="button">Refresh Model Status</button>
             <button id="train-routing-model-btn" class="btn btn-primary btn-mini" type="button" ${trainBusy ? 'disabled' : ''}>Train Routing Model</button>
           </div>
+          <div class="toolbar">
+            <input id="train-routing-csv-file" type="file" accept=".csv,text/csv" ${trainBusy ? 'disabled' : ''} />
+            <button id="train-routing-model-csv-btn" class="btn btn-primary btn-mini" type="button" ${trainBusy ? 'disabled' : ''}>Upload CSV + Train</button>
+          </div>
           <div class="help-note">
             <strong>Routing model:</strong> ${escapeHtml(modelLabel)}<br />
             <strong>Status reason:</strong> ${escapeHtml(modelReason)}<br />
             <strong>Version:</strong> ${escapeHtml(modelVersion)}<br />
             <strong>Trained at:</strong> ${escapeHtml(modelTrainedAt)}<br />
-            <strong>Last train val macro-F1:</strong> ${escapeHtml(String(trainF1))}<br />
-            <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}
+            <strong>Last train val (linear):</strong> acc=${escapeHtml(String(trainAccuracy))}, p=${escapeHtml(String(trainPrecision))}, r=${escapeHtml(String(trainRecall))}, f1=${escapeHtml(String(trainF1))}<br />
+            <strong>Last train val (dialog):</strong> acc=${escapeHtml(String(dialogAccuracy))}, p=${escapeHtml(String(dialogPrecision))}, r=${escapeHtml(String(dialogRecall))}, f1=${escapeHtml(String(dialogF1))}<br />
+            <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}<br />
+            <strong>CSV columns:</strong> <code>final_intent_id</code> or <code>intent_id</code>, and <code>training_sample</code> or <code>text</code> (optional: <code>transcript_text</code>, <code>transcript_segments</code> JSON)
           </div>
           <div class="catalog-grid">
             <div>
@@ -1572,6 +1587,50 @@
               ? report.metrics.val.macro_f1.toFixed(3)
               : 'n/a';
             setBanner('Routing model training finished. val macro-F1=' + f1, 'ok');
+          } catch (err) {
+            setBanner(String(err.message || err), 'error');
+          } finally {
+            state.routingModelBusy = false;
+            render();
+          }
+        });
+      }
+
+      const trainModelCsvBtn = document.getElementById('train-routing-model-csv-btn');
+      if (trainModelCsvBtn) {
+        trainModelCsvBtn.addEventListener('click', async () => {
+          const csvInput = document.getElementById('train-routing-csv-file');
+          const file = csvInput && csvInput.files && csvInput.files[0] ? csvInput.files[0] : null;
+          if (!file) {
+            setBanner('Select a CSV file first.', 'error');
+            return;
+          }
+          if (!confirm('Upload CSV and start routing model training now?')) {
+            return;
+          }
+          state.routingModelBusy = true;
+          render();
+          setBanner('CSV upload started. Preparing dataset for training...', 'ok');
+          try {
+            const formData = new FormData();
+            formData.append('dataset', file);
+            const response = await apiJson('/api/v1/routing-model/train-csv', {
+              method: 'POST',
+              body: formData
+            });
+            if (response && response.status) {
+              state.routingModelStatus = response.status;
+            } else {
+              await loadRoutingModelStatus(true);
+            }
+            render();
+            const report = response && response.report ? response.report : null;
+            const f1 = report && report.metrics && report.metrics.val && typeof report.metrics.val.macro_f1 === 'number'
+              ? report.metrics.val.macro_f1.toFixed(3)
+              : 'n/a';
+            const csvImport = response && response.csv_import ? response.csv_import : null;
+            const importedRows = csvImport && typeof csvImport.imported_rows === 'number' ? csvImport.imported_rows : '?';
+            setBanner('Routing model training finished from CSV. imported=' + importedRows + ', val macro-F1=' + f1, 'ok');
           } catch (err) {
             setBanner(String(err.message || err), 'error');
           } finally {

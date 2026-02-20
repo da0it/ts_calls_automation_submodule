@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -104,6 +105,7 @@ func main() {
 		cfg.RouterAdminURL,
 		cfg.RouterAdminToken,
 		time.Duration(cfg.RouterAdminTimeoutSeconds)*time.Second,
+		filepath.Dir(cfg.RoutingFeedbackPath),
 	)
 
 	// Инициализация handlers
@@ -220,6 +222,7 @@ func setupRouter(
 			admin.POST("/routing-config/intents", h.CreateRoutingIntent)
 			admin.DELETE("/routing-config/intents/:id", h.DeleteRoutingIntent)
 			admin.POST("/routing-model/train", h.TrainRoutingModel)
+			admin.POST("/routing-model/train-csv", h.TrainRoutingModelCSV)
 
 			// User management
 			admin.GET("/users", auth.ListUsers)

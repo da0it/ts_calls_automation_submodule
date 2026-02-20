@@ -3,13 +3,11 @@ from typing import Any, Dict, List, Tuple
 import re
 
 from transcribe_logic.config import CFG
-from transcribe_logic.opening_classifier import OpeningSentenceClassifier
 
 ROLE_CALLER = "звонящий"
 ROLE_ANSWERER = "ответчик"
 ROLE_UNKNOWN = "не определено"
 _ALLOWED_ROLES = {ROLE_CALLER, ROLE_ANSWERER, ROLE_UNKNOWN}
-_OPENING_MODEL_CACHE: Dict[str, OpeningSentenceClassifier | None] = {}
 
 
 def _norm_text(s: str) -> str:
@@ -95,22 +93,6 @@ def _opening_sentence_score(text: str) -> float:
     return score
 
 
-def _get_opening_classifier() -> OpeningSentenceClassifier | None:
-    if not CFG.role.opening_model_enabled:
-        return None
-    model_path = (CFG.role.opening_model_path or "").strip()
-    if not model_path:
-        return None
-    if model_path in _OPENING_MODEL_CACHE:
-        return _OPENING_MODEL_CACHE[model_path]
-    try:
-        model = OpeningSentenceClassifier.load(model_path)
-    except Exception:
-        model = None
-    _OPENING_MODEL_CACHE[model_path] = model
-    return model
-
-
 def _detect_opening_speakers(
     segments: List[Dict[str, Any]],
     speakers: List[Any],
@@ -119,7 +101,6 @@ def _detect_opening_speakers(
         return []
 
     max_start = float(max(1.0, CFG.role.opening_max_start_sec))
-    classifier = _get_opening_classifier()
     opening_stats: Dict[Any, Dict[str, float]] = {}
     for seg in segments:
         spk = seg.get("speaker")
@@ -131,14 +112,7 @@ def _detect_opening_speakers(
         if _is_short_utterance(seg):
             continue
         text = str(seg.get("text", "") or "")
-        rule_score = _opening_sentence_score(text)
-        model_proba = classifier.predict_proba(text) if classifier is not None else 0.0
-        model_score = 2.0 * model_proba if classifier is not None else 0.0
-        score = rule_score
-        if classifier is not None:
-            score = max(rule_score, model_score) + 0.2 * min(rule_score, model_score)
-            if model_proba < CFG.role.opening_model_min_proba and rule_score < 0.5:
-                continue
+        score = _opening_sentence_score(text)
         if score <= 0.0:
             continue
 

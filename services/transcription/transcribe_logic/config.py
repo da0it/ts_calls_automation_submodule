@@ -1,7 +1,6 @@
 # transcribe/config.py
 from __future__ import annotations
 from dataclasses import dataclass, field
-import os
 
 @dataclass
 class AudioCfg:
@@ -72,9 +71,6 @@ class RoleCfg:
     opening_max_start_sec: float = 25.0
     opening_min_score: float = 1.1
     opening_near_best_delta: float = 0.35
-    opening_model_enabled: bool = os.getenv("OPENING_CLASSIFIER_ENABLED", "0").strip() in {"1", "true", "yes", "on"}
-    opening_model_path: str = os.getenv("OPENING_CLASSIFIER_PATH", "")
-    opening_model_min_proba: float = float(os.getenv("OPENING_CLASSIFIER_MIN_PROBA", "0.55"))
 
     # ключевые слова (регексы/подстроки; делаем простыми)
     answerer_phrases: tuple[str, ...] = (

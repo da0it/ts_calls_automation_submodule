@@ -953,7 +953,13 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         criterion: nn.Module,
     ) -> Dict[str, float]:
         if not indices:
-            return {"loss": 0.0, "accuracy": 0.0, "macro_f1": 0.0}
+            return {
+                "loss": 0.0,
+                "accuracy": 0.0,
+                "macro_precision": 0.0,
+                "macro_recall": 0.0,
+                "macro_f1": 0.0,
+            }
 
         model.eval()
         losses: List[float] = []
@@ -977,10 +983,12 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         pred = torch.cat(preds, dim=0)
         target = torch.cat(targets, dim=0)
         acc = float((pred == target).float().mean().item()) if target.numel() > 0 else 0.0
-        macro_f1 = self._macro_f1(pred, target)
+        macro_precision, macro_recall, macro_f1 = self._macro_precision_recall_f1(pred, target)
         return {
             "loss": round(sum(losses) / max(1, len(losses)), 6),
             "accuracy": round(acc, 6),
+            "macro_precision": round(macro_precision, 6),
+            "macro_recall": round(macro_recall, 6),
             "macro_f1": round(macro_f1, 6),
         }
 
@@ -1220,19 +1228,26 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
         pred = torch.cat(preds, dim=0) if preds else torch.empty_like(y)
         acc = float((pred == y).float().mean().item()) if y.numel() > 0 else 0.0
-        macro_f1 = self._macro_f1(pred, y)
+        macro_precision, macro_recall, macro_f1 = self._macro_precision_recall_f1(pred, y)
 
         return {
             "loss": round(sum(losses) / max(1, len(losses)), 6),
             "accuracy": round(acc, 6),
+            "macro_precision": round(macro_precision, 6),
+            "macro_recall": round(macro_recall, 6),
             "macro_f1": round(macro_f1, 6),
         }
 
     def _macro_f1(self, pred: torch.Tensor, target: torch.Tensor) -> float:
+        return self._macro_precision_recall_f1(pred, target)[2]
+
+    def _macro_precision_recall_f1(self, pred: torch.Tensor, target: torch.Tensor) -> Tuple[float, float, float]:
         if target.numel() == 0:
-            return 0.0
+            return 0.0, 0.0, 0.0
 
         labels = sorted({int(x.item()) for x in target})
+        precision_scores: List[float] = []
+        recall_scores: List[float] = []
         f1_scores: List[float] = []
         for label in labels:
             p = pred == label
@@ -1243,12 +1258,17 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            precision_scores.append(precision)
+            recall_scores.append(recall)
             if precision + recall == 0:
                 f1_scores.append(0.0)
             else:
                 f1_scores.append(2 * precision * recall / (precision + recall))
 
-        return float(sum(f1_scores) / max(1, len(f1_scores)))
+        macro_precision = float(sum(precision_scores) / max(1, len(precision_scores)))
+        macro_recall = float(sum(recall_scores) / max(1, len(recall_scores)))
+        macro_f1 = float(sum(f1_scores) / max(1, len(f1_scores)))
+        return macro_precision, macro_recall, macro_f1
 
     def _extract_text_with_context(self, text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
