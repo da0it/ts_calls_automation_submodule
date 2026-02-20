@@ -31,3 +31,34 @@ For whisperx speaker jitter smoothing you can tune:
 - `WHISPERX_FLIP_MAX_SEC`
 - `WHISPERX_FLIP_MAX_WORDS`
 - `WHISPERX_MERGE_GAP_SEC`
+
+## Trainable opening sentence classifier
+
+Role inference can use a trainable opening sentence classifier (in addition to rule-based phrases).
+
+CSV format:
+
+- required columns: `text`, `label`
+- `label`: one of `1/0`, `true/false`, `opening/non-opening`, `agent/customer`
+- if `text` contains commas, wrap it in quotes (standard CSV escaping)
+
+Train model:
+
+```bash
+cd /app
+python train_opening_classifier.py \
+  --csv /app/data/opening_train.csv \
+  --out /app/models/opening_sentence_model.json \
+  --text-col text \
+  --label-col label
+```
+
+Enable in runtime:
+
+```bash
+OPENING_CLASSIFIER_ENABLED=1
+OPENING_CLASSIFIER_PATH=/app/models/opening_sentence_model.json
+OPENING_CLASSIFIER_MIN_PROBA=0.55
+```
+
+If model is missing/unavailable, role inference automatically falls back to rule-based opening detection.
