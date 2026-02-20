@@ -96,6 +96,15 @@ services:
       ROUTER_TRAIN_LR: 0.01
       ROUTER_TRAIN_VAL_RATIO: 0.2
       ROUTER_TRAIN_SEED: 42
+      ROUTER_CHUNK_INFERENCE_ENABLED: "1"
+      ROUTER_CHUNK_MAX_CHARS: 1200
+      ROUTER_CHUNK_OVERLAP_TURNS: 1
+      ROUTER_CHUNK_MAX_COUNT: 8
+      ROUTER_CHUNK_LATE_WEIGHT: 0.25
+      ROUTER_CHUNK_BLEND: 0.35
+      ROUTER_URGENCY_ESCALATION_ENABLED: "1"
+      ROUTER_URGENCY_PRIORITY_FLOOR: high
+      ROUTER_URGENCY_PATTERNS: "вся компания;все сотрудники;не можем работать;работа стоит;простой;sla;production down;критическ"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     volumes:

@@ -49,6 +49,16 @@ ROLE_CALLER = 1
 ROLE_AGENT = 2
 ROLE_SYSTEM = 3
 ROLE_VOCAB_SIZE = 4
+DEFAULT_URGENCY_PATTERNS = [
+    "вся компания",
+    "все сотрудники",
+    "не можем работать",
+    "работа стоит",
+    "простой",
+    "sla",
+    "production down",
+    "критическ",
+]
 
 
 @dataclass
@@ -149,6 +159,15 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         dialog_dropout: float = 0.1,
         dialog_max_turns: int = 64,
         dialog_max_turn_chars: int = 280,
+        chunk_inference_enabled: bool = False,
+        chunk_max_chars: int = 1200,
+        chunk_overlap_turns: int = 1,
+        chunk_max_count: int = 8,
+        chunk_late_weight: float = 0.25,
+        chunk_blend_alpha: float = 0.35,
+        urgency_escalation_enabled: bool = True,
+        urgency_priority_floor: str = "high",
+        urgency_patterns: Optional[List[str]] = None,
     ):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,6 +192,17 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self.dialog_dropout = float(max(0.0, min(0.5, dialog_dropout)))
         self.dialog_max_turns = int(max(8, min(256, dialog_max_turns)))
         self.dialog_max_turn_chars = int(max(40, min(1200, dialog_max_turn_chars)))
+        self.chunk_inference_enabled = bool(chunk_inference_enabled)
+        self.chunk_max_chars = int(max(300, min(5000, chunk_max_chars)))
+        self.chunk_overlap_turns = int(max(0, min(6, chunk_overlap_turns)))
+        self.chunk_max_count = int(max(1, min(24, chunk_max_count)))
+        self.chunk_late_weight = float(max(0.0, min(1.5, chunk_late_weight)))
+        self.chunk_blend_alpha = float(max(0.0, min(1.0, chunk_blend_alpha)))
+        self.urgency_escalation_enabled = bool(urgency_escalation_enabled)
+        floor = str(urgency_priority_floor or "high").strip().lower()
+        self.urgency_priority_floor = floor if floor in {"low", "medium", "high", "critical"} else "high"
+        patterns = urgency_patterns if isinstance(urgency_patterns, list) else None
+        self.urgency_patterns = [str(p).strip().lower() for p in (patterns or DEFAULT_URGENCY_PATTERNS) if str(p).strip()]
 
         self.preprocess_cfg = preprocess_cfg or PreprocessConfig(
             drop_fillers=True,
@@ -232,6 +262,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         tuned_probs, tuned_meta = self._predict_with_tuned_head(q, intent_ids)
         finetuned_probs, finetuned_meta = self._predict_with_finetuned_model(text, intent_ids)
         dialog_probs, dialog_meta = self._predict_with_dialog_head(call, intent_ids)
+        chunk_probs, chunk_meta = self._predict_with_chunked_context(call, intent_ids, intent_emb, allowed_intents)
 
         final_probs = sim_probs
         confidence_sources = ["embed"]
@@ -247,6 +278,10 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             alpha = self.dialog_blend_alpha
             final_probs = (1.0 - alpha) * final_probs + alpha * dialog_probs
             confidence_sources.append("dialog")
+        if chunk_probs is not None:
+            alpha = self.chunk_blend_alpha
+            final_probs = (1.0 - alpha) * final_probs + alpha * chunk_probs
+            confidence_sources.append("chunk")
         confidence_source = "+".join(confidence_sources)
 
         top3_indices = torch.topk(final_probs, k=min(3, len(intent_ids)))[1]
@@ -285,6 +320,14 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 notes += f"; dialog_version={dialog_meta['version_id']}"
             if rule_boosts:
                 notes += f"; rule_boosts={{{', '.join(f'{k}:{v:.2f}' for k, v in rule_boosts.items())}}}"
+
+        urgency_meta = self._detect_urgency_signals(prep)
+        if urgency_meta.get("triggered"):
+            old_priority = str(priority)
+            priority = self._elevate_priority(old_priority, self.urgency_priority_floor)
+            notes += f"; urgency_hits={urgency_meta.get('matched', [])}"
+            if str(priority) != old_priority:
+                notes += f"; priority_escalated:{old_priority}->{priority}"
 
         evidence = self._semantic_evidence(prep, allowed_intents.get(best_intent_id, {}).get("examples", []))
 
@@ -331,6 +374,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "tuned_model": tuned_meta,
                 "finetuned_model": finetuned_meta,
                 "dialog_model": dialog_meta,
+                "chunk_model": chunk_meta,
+                "urgency": urgency_meta,
             },
         )
 
@@ -1627,6 +1672,169 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         macro_recall = float(sum(recall_scores) / max(1, len(recall_scores)))
         macro_f1 = float(sum(f1_scores) / max(1, len(f1_scores)))
         return macro_precision, macro_recall, macro_f1
+
+    def _predict_with_chunked_context(
+        self,
+        call: CallInput,
+        intent_ids: List[str],
+        intent_emb: torch.Tensor,
+        allowed_intents: Dict[str, Dict],
+    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
+        if not self.chunk_inference_enabled:
+            return None, {"enabled": False, "reason": "disabled"}
+
+        chunks = self._split_call_into_chunks(call)
+        if len(chunks) <= 1:
+            return None, {"enabled": True, "chunks": len(chunks), "reason": "single_chunk"}
+
+        weighted_probs: List[torch.Tensor] = []
+        weights: List[float] = []
+        top_intents: List[str] = []
+        top_scores: List[float] = []
+
+        idx_map = {intent_id: i for i, intent_id in enumerate(intent_ids)}
+        for idx, chunk_text in enumerate(chunks):
+            q = self._embed([chunk_text])
+            sims = (q @ intent_emb.T).squeeze(0)
+
+            chunk_prep = build_canonical([(float(idx), chunk_text, None)], self.preprocess_cfg)
+            chunk_boosts = self._calculate_rule_boosts(chunk_prep, allowed_intents)
+            if chunk_boosts:
+                for intent_id, delta in chunk_boosts.items():
+                    j = idx_map.get(intent_id)
+                    if j is not None:
+                        sims[j] = sims[j] + float(delta)
+
+            probs = torch.softmax(sims / 0.15, dim=0)
+            pos = (idx / max(1, len(chunks) - 1))
+            weight = 1.0 + self.chunk_late_weight * pos
+            weighted_probs.append(probs * weight)
+            weights.append(weight)
+
+            best_idx = int(torch.argmax(probs).item())
+            top_intents.append(intent_ids[best_idx])
+            top_scores.append(float(probs[best_idx].item()))
+
+        if not weighted_probs or sum(weights) <= 0.0:
+            return None, {"enabled": True, "chunks": len(chunks), "reason": "empty_probs"}
+
+        agg_probs = torch.stack(weighted_probs, dim=0).sum(dim=0) / float(sum(weights))
+        return agg_probs, {
+            "enabled": True,
+            "chunks": len(chunks),
+            "chunk_max_chars": self.chunk_max_chars,
+            "overlap_turns": self.chunk_overlap_turns,
+            "blend_alpha": self.chunk_blend_alpha,
+            "late_weight": self.chunk_late_weight,
+            "top_intents": top_intents,
+            "top_scores": [round(x, 4) for x in top_scores],
+        }
+
+    def _split_call_into_chunks(self, call: CallInput) -> List[str]:
+        entries: List[str] = []
+
+        def _safe_start(seg: Any) -> float:
+            try:
+                return float(getattr(seg, "start", 0.0) or 0.0)
+            except Exception:
+                return 0.0
+
+        ordered_segments = sorted(list(call.segments or []), key=_safe_start)
+        for seg in ordered_segments:
+            raw_text = re.sub(r"\s+", " ", str(getattr(seg, "text", "") or "")).strip()
+            if not raw_text:
+                continue
+            role = str(getattr(seg, "role", "") or "").strip()
+            speaker = str(getattr(seg, "speaker", "") or "").strip()
+            prefix = role or speaker
+            line = f"{prefix}: {raw_text}" if prefix else raw_text
+            if len(line) > self.chunk_max_chars:
+                line = line[: self.chunk_max_chars].strip()
+            if line:
+                entries.append(line)
+
+        if not entries:
+            return []
+
+        chunks: List[str] = []
+        current: List[str] = []
+        current_len = 0
+
+        for line in entries:
+            add_len = len(line) + (1 if current else 0)
+            if current and current_len + add_len > self.chunk_max_chars:
+                chunks.append("\n".join(current))
+                overlap = current[-self.chunk_overlap_turns :] if self.chunk_overlap_turns > 0 else []
+                current = list(overlap)
+                current_len = len("\n".join(current)) if current else 0
+                add_len = len(line) + (1 if current else 0)
+                if current and current_len + add_len > self.chunk_max_chars:
+                    current = []
+                    current_len = 0
+            if current:
+                current_len += 1
+            current.append(line)
+            current_len += len(line)
+
+        if current:
+            chunks.append("\n".join(current))
+
+        if len(chunks) <= self.chunk_max_count:
+            return chunks
+        if self.chunk_max_count == 1:
+            return [chunks[-1]]
+
+        return chunks[: self.chunk_max_count - 1] + [chunks[-1]]
+
+    def _normalize_priority(self, priority: str) -> str:
+        value = str(priority or "").strip().lower()
+        if value == "normal":
+            return "medium"
+        if value not in {"low", "medium", "high", "critical"}:
+            return "medium"
+        return value
+
+    def _elevate_priority(self, priority: str, floor: str) -> Priority:
+        rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        current = self._normalize_priority(priority)
+        min_floor = self._normalize_priority(floor)
+        elevated = current if rank[current] >= rank[min_floor] else min_floor
+        return elevated  # type: ignore[return-value]
+
+    def _detect_urgency_signals(self, prep) -> Dict[str, Any]:
+        if not self.urgency_escalation_enabled:
+            return {"enabled": False, "triggered": False, "matched": []}
+
+        text = str(prep.canonical_text or "").strip().lower()
+        if not text:
+            return {"enabled": True, "triggered": False, "matched": []}
+
+        matched: List[str] = []
+        for pattern in self.urgency_patterns:
+            p = str(pattern or "").strip().lower()
+            if not p:
+                continue
+            if " " in p:
+                if p in text:
+                    matched.append(p)
+                continue
+            if re.search(rf"\b{re.escape(p)}\w*", text):
+                matched.append(p)
+
+        seen = set()
+        uniq = []
+        for item in matched:
+            if item in seen:
+                continue
+            seen.add(item)
+            uniq.append(item)
+
+        return {
+            "enabled": True,
+            "triggered": bool(uniq),
+            "matched": uniq[:10],
+            "priority_floor": self.urgency_priority_floor,
+        }
 
     def _extract_text_with_context(self, text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
