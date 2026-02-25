@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
 import json
 import logging
 import os
@@ -18,6 +17,15 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer
 
+from .dialog_head import (
+    DialogTransformerHead,
+    DialogTurn,
+    ROLE_AGENT,
+    ROLE_CALLER,
+    ROLE_SYSTEM,
+    ROLE_UNKNOWN,
+    ROLE_VOCAB_SIZE,
+)
 from .models import AIAnalysis, CallInput, Evidence, IntentResult, Priority
 from .nlp_preprocess import PreprocessConfig, build_canonical
 
@@ -42,90 +50,6 @@ def _mean_pool(last_hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch
     s = (last_hidden * mask).sum(dim=1)
     d = mask.sum(dim=1).clamp(min=1e-9)
     return s / d
-
-
-ROLE_UNKNOWN = 0
-ROLE_CALLER = 1
-ROLE_AGENT = 2
-ROLE_SYSTEM = 3
-ROLE_VOCAB_SIZE = 4
-DEFAULT_URGENCY_PATTERNS = [
-    "вся компания",
-    "все сотрудники",
-    "не можем работать",
-    "работа стоит",
-    "простой",
-    "sla",
-    "production down",
-    "критическ",
-]
-
-
-@dataclass
-class DialogTurn:
-    role_id: int
-    text: str
-
-
-class DialogTransformerHead(nn.Module):
-    def __init__(
-        self,
-        *,
-        in_features: int,
-        num_classes: int,
-        d_model: int = 256,
-        nhead: int = 4,
-        num_layers: int = 2,
-        dropout: float = 0.1,
-        max_turns: int = 64,
-    ) -> None:
-        super().__init__()
-        self.in_features = int(in_features)
-        self.num_classes = int(num_classes)
-        self.d_model = int(d_model)
-        self.nhead = int(nhead)
-        self.num_layers = int(num_layers)
-        self.max_turns = int(max_turns)
-
-        self.input_proj = nn.Linear(self.in_features, self.d_model)
-        self.role_emb = nn.Embedding(ROLE_VOCAB_SIZE, self.d_model)
-        self.pos_emb = nn.Embedding(self.max_turns, self.d_model)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.d_model,
-            nhead=self.nhead,
-            dim_feedforward=self.d_model * 4,
-            dropout=float(dropout),
-            activation="gelu",
-            batch_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_layers)
-        self.norm = nn.LayerNorm(self.d_model)
-        self.classifier = nn.Linear(self.d_model, self.num_classes)
-
-    def forward(
-        self,
-        turn_embeddings: torch.Tensor,
-        role_ids: torch.Tensor,
-        key_padding_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        # turn_embeddings: [B, T, F]
-        # role_ids: [B, T]
-        # key_padding_mask: [B, T] (True for padding)
-        batch, seq_len, _ = turn_embeddings.shape
-        seq_len = min(seq_len, self.max_turns)
-        x = turn_embeddings[:, :seq_len, :]
-        roles = role_ids[:, :seq_len]
-        mask = key_padding_mask[:, :seq_len]
-
-        x = self.input_proj(x)
-        pos_idx = torch.arange(seq_len, device=x.device).unsqueeze(0).expand(batch, -1)
-        x = x + self.role_emb(roles) + self.pos_emb(pos_idx)
-        x = self.encoder(x, src_key_padding_mask=mask)
-        x = self.norm(x)
-
-        valid = (~mask).unsqueeze(-1).to(x.dtype)
-        pooled = (x * valid).sum(dim=1) / valid.sum(dim=1).clamp(min=1.0)
-        return self.classifier(pooled)
 
 
 class AIAnalyzer:
@@ -159,15 +83,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         dialog_dropout: float = 0.1,
         dialog_max_turns: int = 64,
         dialog_max_turn_chars: int = 280,
-        chunk_inference_enabled: bool = False,
-        chunk_max_chars: int = 1200,
-        chunk_overlap_turns: int = 1,
-        chunk_max_count: int = 8,
-        chunk_late_weight: float = 0.25,
-        chunk_blend_alpha: float = 0.35,
-        urgency_escalation_enabled: bool = True,
-        urgency_priority_floor: str = "high",
-        urgency_patterns: Optional[List[str]] = None,
     ):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -192,17 +107,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self.dialog_dropout = float(max(0.0, min(0.5, dialog_dropout)))
         self.dialog_max_turns = int(max(8, min(256, dialog_max_turns)))
         self.dialog_max_turn_chars = int(max(40, min(1200, dialog_max_turn_chars)))
-        self.chunk_inference_enabled = bool(chunk_inference_enabled)
-        self.chunk_max_chars = int(max(300, min(5000, chunk_max_chars)))
-        self.chunk_overlap_turns = int(max(0, min(6, chunk_overlap_turns)))
-        self.chunk_max_count = int(max(1, min(24, chunk_max_count)))
-        self.chunk_late_weight = float(max(0.0, min(1.5, chunk_late_weight)))
-        self.chunk_blend_alpha = float(max(0.0, min(1.0, chunk_blend_alpha)))
-        self.urgency_escalation_enabled = bool(urgency_escalation_enabled)
-        floor = str(urgency_priority_floor or "high").strip().lower()
-        self.urgency_priority_floor = floor if floor in {"low", "medium", "high", "critical"} else "high"
-        patterns = urgency_patterns if isinstance(urgency_patterns, list) else None
-        self.urgency_patterns = [str(p).strip().lower() for p in (patterns or DEFAULT_URGENCY_PATTERNS) if str(p).strip()]
 
         self.preprocess_cfg = preprocess_cfg or PreprocessConfig(
             drop_fillers=True,
@@ -243,93 +147,62 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
         prep = build_canonical([(s.start, s.text, s.role) for s in call.segments], self.preprocess_cfg)
         text = self._extract_text_with_context(prep.canonical_text, self.max_text_chars)
-        lemmas_for_rules = prep.lemmas
-
-        intent_ids, intent_emb = self._build_intent_matrix(allowed_intents)
-
-        q = self._embed([text])
-        sims = (q @ intent_emb.T).squeeze(0)
-
-        rule_boosts = self._calculate_rule_boosts(prep, allowed_intents)
-        if rule_boosts:
-            idx_map = {intent_id: i for i, intent_id in enumerate(intent_ids)}
-            for intent_id, delta in rule_boosts.items():
-                idx = idx_map.get(intent_id)
-                if idx is not None:
-                    sims[idx] = sims[idx] + float(delta)
-
-        sim_probs = torch.softmax(sims / 0.15, dim=0)
-        tuned_probs, tuned_meta = self._predict_with_tuned_head(q, intent_ids)
+        intent_ids = sorted(allowed_intents.keys())
         finetuned_probs, finetuned_meta = self._predict_with_finetuned_model(text, intent_ids)
-        dialog_probs, dialog_meta = self._predict_with_dialog_head(call, intent_ids)
-        chunk_probs, chunk_meta = self._predict_with_chunked_context(call, intent_ids, intent_emb, allowed_intents)
+        confidence_source = "finetuned_primary"
 
-        final_probs = sim_probs
-        confidence_sources = ["embed"]
-        if tuned_probs is not None:
-            alpha = self.tuned_blend_alpha
-            final_probs = (1.0 - alpha) * sim_probs + alpha * tuned_probs
-            confidence_sources.append("linear")
-        if finetuned_probs is not None:
-            alpha = self.finetuned_blend_alpha
-            final_probs = (1.0 - alpha) * final_probs + alpha * finetuned_probs
-            confidence_sources.append("finetuned")
-        if dialog_probs is not None:
-            alpha = self.dialog_blend_alpha
-            final_probs = (1.0 - alpha) * final_probs + alpha * dialog_probs
-            confidence_sources.append("dialog")
-        if chunk_probs is not None:
-            alpha = self.chunk_blend_alpha
-            final_probs = (1.0 - alpha) * final_probs + alpha * chunk_probs
-            confidence_sources.append("chunk")
-        confidence_source = "+".join(confidence_sources)
+        if finetuned_probs is None:
+            logger.warning("Fine-tuned model unavailable for call %s, routing to triage", call.call_id)
+            processing_time_ms = (time.time() - start_time) * 1000
+            intent = IntentResult(
+                intent_id="misc.triage",
+                confidence=0.0,
+                evidence=[],
+                notes="finetuned model unavailable -> triage",
+            )
+            return AIAnalysis(
+                intent=intent,
+                priority="medium",
+                suggested_targets=[{"type": "group", "id": "technical_support", "confidence": 0.0}],
+                raw={
+                    "mode": "finetuned_only",
+                    "model_version": self.model_name,
+                    "device": self.device,
+                    "processing_time_ms": round(processing_time_ms, 2),
+                    "finetuned_model": finetuned_meta,
+                    "text_length": len(text),
+                },
+            )
+
+        final_probs = finetuned_probs
 
         top3_indices = torch.topk(final_probs, k=min(3, len(intent_ids)))[1]
         top3_intents = [
             {
                 "intent": intent_ids[int(i)],
                 "score": float(final_probs[i].item()),
-                "sim": float(sims[i].item()),
             }
             for i in top3_indices
         ]
 
         best_idx = int(torch.argmax(final_probs).item())
         best_intent_id = intent_ids[best_idx]
-        best_sim = float(sims[best_idx].item())
-
-        if tuned_probs is not None or finetuned_probs is not None or dialog_probs is not None:
-            conf = float(final_probs[best_idx].item())
-        else:
-            conf = self._calculate_confidence(sims, best_idx)
+        conf = float(final_probs[best_idx].item())
 
         if conf < self.min_confidence:
             logger.warning("Low confidence %.3f for call %s, routing to triage", conf, call.call_id)
             best_intent_id = "misc.triage"
-            priority: Priority = "normal"
+            priority: Priority = "medium"
             notes = f"{confidence_source} confidence={conf:.3f} (confidence_too_low -> triage)"
         else:
             meta = allowed_intents.get(best_intent_id, {})
             priority = meta.get("priority", "normal")
-            notes = f"{confidence_source} confidence={conf:.3f}; sim={best_sim:.3f}"
-            if tuned_probs is not None and tuned_meta.get("version_id"):
-                notes += f"; tuned_version={tuned_meta['version_id']}"
+            if priority == "normal":
+                priority = "medium"
+            notes = f"{confidence_source} confidence={conf:.3f}"
             if finetuned_probs is not None and finetuned_meta.get("trained_at"):
                 notes += f"; finetuned_trained_at={finetuned_meta['trained_at']}"
-            if dialog_probs is not None and dialog_meta.get("version_id"):
-                notes += f"; dialog_version={dialog_meta['version_id']}"
-            if rule_boosts:
-                notes += f"; rule_boosts={{{', '.join(f'{k}:{v:.2f}' for k, v in rule_boosts.items())}}}"
-
-        urgency_meta = self._detect_urgency_signals(prep)
-        if urgency_meta.get("triggered"):
-            old_priority = str(priority)
-            priority = self._elevate_priority(old_priority, self.urgency_priority_floor)
-            notes += f"; urgency_hits={urgency_meta.get('matched', [])}"
-            if str(priority) != old_priority:
-                notes += f"; priority_escalated:{old_priority}->{priority}"
-
-        evidence = self._semantic_evidence(prep, allowed_intents.get(best_intent_id, {}).get("examples", []))
+        evidence: List[Evidence] = []
 
         suggested_targets = []
         meta = allowed_intents.get(best_intent_id, {})
@@ -345,10 +218,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "call_id": call.call_id,
                 "intent": best_intent_id,
                 "confidence": round(conf, 3),
-                "similarity": round(best_sim, 3),
                 "text_length": len(text),
                 "processing_time_ms": round(processing_time_ms, 2),
-                "rule_boosts": rule_boosts,
                 "confidence_source": confidence_source,
             },
         )
@@ -360,22 +231,15 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             priority=priority,
             suggested_targets=suggested_targets,
             raw={
-                "mode": "rubert_embed",
+                "mode": "finetuned_only",
                 "model_version": self.model_name,
                 "device": self.device,
-                "sim": round(best_sim, 4),
                 "processing_time_ms": round(processing_time_ms, 2),
                 "top3_intents": top3_intents,
                 "prep_meta": prep.meta,
-                "lemmas_n": len(lemmas_for_rules),
                 "text_length": len(text),
-                "rule_boosts": rule_boosts,
                 "confidence_source": confidence_source,
-                "tuned_model": tuned_meta,
                 "finetuned_model": finetuned_meta,
-                "dialog_model": dialog_meta,
-                "chunk_model": chunk_meta,
-                "urgency": urgency_meta,
             },
         )
 
@@ -407,10 +271,10 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         dialog_head = artifact.get("dialog_head") if isinstance(artifact.get("dialog_head"), dict) else {}
         finetuned_model = artifact.get("finetuned_model") if isinstance(artifact.get("finetuned_model"), dict) else {}
         finetuned_ready = bool(finetuned_model and finetuned_model.get("enabled"))
-        dialog_ready = bool(dialog_head and dialog_head.get("enabled"))
-        reason = "ok" if compatible else "intents_mismatch"
+        active = compatible and finetuned_ready
+        reason = "ok" if active else ("intents_mismatch" if not compatible else "no_finetuned_model")
         return {
-            "active": compatible,
+            "active": active,
             "reason": reason,
             "model_path": self.tuned_model_path,
             "version_id": artifact.get("version_id", ""),
@@ -421,21 +285,21 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             "metrics": artifact.get("metrics", {}),
             "dataset": artifact.get("dataset", {}),
             "linear_head": {
-                "active": compatible,
-                "blend_alpha": self.tuned_blend_alpha,
-                "metrics": artifact.get("metrics", {}),
+                "active": False,
+                "blend_alpha": 0.0,
+                "metrics": {},
             },
             "dialog_head": {
-                "enabled": self.dialog_head_enabled,
-                "active": compatible and dialog_ready,
-                "blend_alpha": self.dialog_blend_alpha,
+                "enabled": False,
+                "active": False,
+                "blend_alpha": 0.0,
                 "max_turns": self.dialog_max_turns,
-                "metrics": dialog_head.get("metrics", {}),
+                "metrics": dialog_head.get("metrics", {}) if isinstance(dialog_head, dict) else {},
             },
             "finetuned_model": {
                 "enabled": self.finetuned_enabled,
-                "active": compatible and finetuned_ready,
-                "blend_alpha": self.finetuned_blend_alpha,
+                "active": active,
+                "blend_alpha": 1.0,
                 "model_path": finetuned_model.get("model_path", self.finetuned_model_path),
                 "metrics": finetuned_model.get("metrics", {}),
             },
@@ -459,6 +323,9 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self._set_last_train_error("")
 
         try:
+            if not self.finetuned_enabled:
+                raise RuntimeError("fine-tuning is disabled (set ROUTER_FINETUNED_ENABLED=1)")
+
             samples, dataset_meta = self._collect_training_samples(allowed_intents, feedback_path)
             if not samples:
                 raise RuntimeError("no training samples after preprocessing")
@@ -484,147 +351,35 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             texts = [str(row.get("text") or "") for row in filtered_samples]
             labels = [int(row.get("label_idx")) for row in filtered_samples]
 
-            features = self._embed_batched(texts, batch_size=64).cpu()
-            label_tensor = torch.tensor(labels, dtype=torch.long)
-
             train_idx, val_idx = self._stratified_split(labels, val_ratio=val_ratio, random_seed=random_seed)
             if not train_idx:
                 raise RuntimeError("stratified split produced empty train set")
-
-            train_x = features[train_idx]
-            train_y = label_tensor[train_idx]
-
-            if val_idx:
-                val_x = features[val_idx]
-                val_y = label_tensor[val_idx]
-            else:
-                val_x = train_x
-                val_y = train_y
-
-            in_features = int(features.shape[1])
-            num_classes = len(intent_ids)
-
-            model = nn.Linear(in_features, num_classes).to(self.device)
-            class_weights = self._build_class_weights(train_y, num_classes).to(self.device)
-            criterion = nn.CrossEntropyLoss(weight=class_weights)
-            optimizer = torch.optim.AdamW(model.parameters(), lr=float(learning_rate), weight_decay=0.01)
-
-            epochs = int(max(10, min(400, epochs)))
-            batch_size = int(max(8, min(256, batch_size)))
-            best_state = None
-            best_val_f1 = -1.0
-            best_epoch = 0
-            patience = 25
-            no_improve = 0
-
-            torch.manual_seed(int(random_seed))
-            random.seed(int(random_seed))
-
-            for epoch in range(1, epochs + 1):
-                model.train()
-                indices = torch.randperm(train_x.size(0))
-                for start in range(0, train_x.size(0), batch_size):
-                    batch_idx = indices[start : start + batch_size]
-                    xb = train_x[batch_idx].to(self.device)
-                    yb = train_y[batch_idx].to(self.device)
-
-                    optimizer.zero_grad(set_to_none=True)
-                    logits = model(xb)
-                    loss = criterion(logits, yb)
-                    loss.backward()
-                    optimizer.step()
-
-                val_metrics = self._evaluate_linear(model, val_x, val_y, batch_size=batch_size)
-                val_f1 = float(val_metrics["macro_f1"])
-
-                if val_f1 > best_val_f1 + 1e-6:
-                    best_val_f1 = val_f1
-                    best_epoch = epoch
-                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-                    no_improve = 0
-                else:
-                    no_improve += 1
-
-                if no_improve >= patience:
-                    break
-
-            if best_state is None:
-                raise RuntimeError("training failed: no best checkpoint")
-
-            model.load_state_dict(best_state)
-            train_metrics = self._evaluate_linear(model, train_x, train_y, batch_size=batch_size)
-            val_metrics = self._evaluate_linear(model, val_x, val_y, batch_size=batch_size)
-
-            dialog_artifact: Dict[str, Any] = {"enabled": False}
-            dialog_report: Dict[str, Any] = {"enabled": False}
-            if self.dialog_head_enabled:
-                try:
-                    dialog_report, dialog_artifact = self._train_dialog_transformer(
-                        samples=filtered_samples,
-                        intent_ids=intent_ids,
-                        epochs=epochs,
-                        batch_size=batch_size,
-                        learning_rate=learning_rate,
-                        val_ratio=val_ratio,
-                        random_seed=random_seed,
-                    )
-                except Exception as dialog_exc:
-                    logger.warning("Dialog transformer training failed, keeping linear head only: %s", dialog_exc)
-                    dialog_artifact = {
-                        "enabled": False,
-                        "error": str(dialog_exc),
-                    }
-                    dialog_report = {
-                        "enabled": False,
-                        "error": str(dialog_exc),
-                    }
-
-            finetuned_artifact: Dict[str, Any] = {"enabled": False}
-            finetuned_report: Dict[str, Any] = {"enabled": False}
-            if self.finetuned_enabled:
-                try:
-                    finetuned_report, finetuned_artifact = self._train_finetuned_rubert(
-                        texts=texts,
-                        labels=labels,
-                        intent_ids=intent_ids,
-                        train_idx=train_idx,
-                        val_idx=val_idx,
-                        random_seed=random_seed,
-                    )
-                except Exception as finetuned_exc:
-                    logger.warning("RuBERT fine-tuning failed, keeping linear/dialog heads only: %s", finetuned_exc)
-                    finetuned_artifact = {
-                        "enabled": False,
-                        "error": str(finetuned_exc),
-                    }
-                    finetuned_report = {
-                        "enabled": False,
-                        "error": str(finetuned_exc),
-                    }
+            finetuned_report, finetuned_artifact = self._train_finetuned_rubert(
+                texts=texts,
+                labels=labels,
+                intent_ids=intent_ids,
+                train_idx=train_idx,
+                val_idx=val_idx,
+                random_seed=random_seed,
+            )
 
             trained_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             version_id = f"tuned-{int(time.time())}"
             artifact = {
-                "artifact_version": 2,
+                "artifact_version": 3,
                 "version_id": version_id,
                 "trained_at": trained_at,
                 "model_name": self.model_name,
-                "in_features": in_features,
                 "intent_ids": intent_ids,
-                "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-                "metrics": {
-                    "best_epoch": best_epoch,
-                    "train": train_metrics,
-                    "val": val_metrics,
-                    "epochs_requested": epochs,
-                },
+                "metrics": finetuned_report.get("metrics", {}),
                 "dataset": {
                     **dataset_meta,
                     "samples_total": len(filtered_samples),
                     "samples_train": len(train_idx),
                     "samples_val": len(val_idx),
                 },
-                "dialog_head": dialog_artifact,
+                "dialog_head": {"enabled": False},
+                "linear_head": {"enabled": False},
                 "finetuned_model": finetuned_artifact,
             }
 
@@ -639,7 +394,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "output_path": output_path,
                 "metrics": artifact["metrics"],
                 "dataset": artifact["dataset"],
-                "dialog_head": dialog_report,
                 "finetuned_model": finetuned_report,
             }
             self._set_last_train_report(report)
@@ -1673,169 +1427,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         macro_f1 = float(sum(f1_scores) / max(1, len(f1_scores)))
         return macro_precision, macro_recall, macro_f1
 
-    def _predict_with_chunked_context(
-        self,
-        call: CallInput,
-        intent_ids: List[str],
-        intent_emb: torch.Tensor,
-        allowed_intents: Dict[str, Dict],
-    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
-        if not self.chunk_inference_enabled:
-            return None, {"enabled": False, "reason": "disabled"}
-
-        chunks = self._split_call_into_chunks(call)
-        if len(chunks) <= 1:
-            return None, {"enabled": True, "chunks": len(chunks), "reason": "single_chunk"}
-
-        weighted_probs: List[torch.Tensor] = []
-        weights: List[float] = []
-        top_intents: List[str] = []
-        top_scores: List[float] = []
-
-        idx_map = {intent_id: i for i, intent_id in enumerate(intent_ids)}
-        for idx, chunk_text in enumerate(chunks):
-            q = self._embed([chunk_text])
-            sims = (q @ intent_emb.T).squeeze(0)
-
-            chunk_prep = build_canonical([(float(idx), chunk_text, None)], self.preprocess_cfg)
-            chunk_boosts = self._calculate_rule_boosts(chunk_prep, allowed_intents)
-            if chunk_boosts:
-                for intent_id, delta in chunk_boosts.items():
-                    j = idx_map.get(intent_id)
-                    if j is not None:
-                        sims[j] = sims[j] + float(delta)
-
-            probs = torch.softmax(sims / 0.15, dim=0)
-            pos = (idx / max(1, len(chunks) - 1))
-            weight = 1.0 + self.chunk_late_weight * pos
-            weighted_probs.append(probs * weight)
-            weights.append(weight)
-
-            best_idx = int(torch.argmax(probs).item())
-            top_intents.append(intent_ids[best_idx])
-            top_scores.append(float(probs[best_idx].item()))
-
-        if not weighted_probs or sum(weights) <= 0.0:
-            return None, {"enabled": True, "chunks": len(chunks), "reason": "empty_probs"}
-
-        agg_probs = torch.stack(weighted_probs, dim=0).sum(dim=0) / float(sum(weights))
-        return agg_probs, {
-            "enabled": True,
-            "chunks": len(chunks),
-            "chunk_max_chars": self.chunk_max_chars,
-            "overlap_turns": self.chunk_overlap_turns,
-            "blend_alpha": self.chunk_blend_alpha,
-            "late_weight": self.chunk_late_weight,
-            "top_intents": top_intents,
-            "top_scores": [round(x, 4) for x in top_scores],
-        }
-
-    def _split_call_into_chunks(self, call: CallInput) -> List[str]:
-        entries: List[str] = []
-
-        def _safe_start(seg: Any) -> float:
-            try:
-                return float(getattr(seg, "start", 0.0) or 0.0)
-            except Exception:
-                return 0.0
-
-        ordered_segments = sorted(list(call.segments or []), key=_safe_start)
-        for seg in ordered_segments:
-            raw_text = re.sub(r"\s+", " ", str(getattr(seg, "text", "") or "")).strip()
-            if not raw_text:
-                continue
-            role = str(getattr(seg, "role", "") or "").strip()
-            speaker = str(getattr(seg, "speaker", "") or "").strip()
-            prefix = role or speaker
-            line = f"{prefix}: {raw_text}" if prefix else raw_text
-            if len(line) > self.chunk_max_chars:
-                line = line[: self.chunk_max_chars].strip()
-            if line:
-                entries.append(line)
-
-        if not entries:
-            return []
-
-        chunks: List[str] = []
-        current: List[str] = []
-        current_len = 0
-
-        for line in entries:
-            add_len = len(line) + (1 if current else 0)
-            if current and current_len + add_len > self.chunk_max_chars:
-                chunks.append("\n".join(current))
-                overlap = current[-self.chunk_overlap_turns :] if self.chunk_overlap_turns > 0 else []
-                current = list(overlap)
-                current_len = len("\n".join(current)) if current else 0
-                add_len = len(line) + (1 if current else 0)
-                if current and current_len + add_len > self.chunk_max_chars:
-                    current = []
-                    current_len = 0
-            if current:
-                current_len += 1
-            current.append(line)
-            current_len += len(line)
-
-        if current:
-            chunks.append("\n".join(current))
-
-        if len(chunks) <= self.chunk_max_count:
-            return chunks
-        if self.chunk_max_count == 1:
-            return [chunks[-1]]
-
-        return chunks[: self.chunk_max_count - 1] + [chunks[-1]]
-
-    def _normalize_priority(self, priority: str) -> str:
-        value = str(priority or "").strip().lower()
-        if value == "normal":
-            return "medium"
-        if value not in {"low", "medium", "high", "critical"}:
-            return "medium"
-        return value
-
-    def _elevate_priority(self, priority: str, floor: str) -> Priority:
-        rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-        current = self._normalize_priority(priority)
-        min_floor = self._normalize_priority(floor)
-        elevated = current if rank[current] >= rank[min_floor] else min_floor
-        return elevated  # type: ignore[return-value]
-
-    def _detect_urgency_signals(self, prep) -> Dict[str, Any]:
-        if not self.urgency_escalation_enabled:
-            return {"enabled": False, "triggered": False, "matched": []}
-
-        text = str(prep.canonical_text or "").strip().lower()
-        if not text:
-            return {"enabled": True, "triggered": False, "matched": []}
-
-        matched: List[str] = []
-        for pattern in self.urgency_patterns:
-            p = str(pattern or "").strip().lower()
-            if not p:
-                continue
-            if " " in p:
-                if p in text:
-                    matched.append(p)
-                continue
-            if re.search(rf"\b{re.escape(p)}\w*", text):
-                matched.append(p)
-
-        seen = set()
-        uniq = []
-        for item in matched:
-            if item in seen:
-                continue
-            seen.add(item)
-            uniq.append(item)
-
-        return {
-            "enabled": True,
-            "triggered": bool(uniq),
-            "matched": uniq[:10],
-            "priority_floor": self.urgency_priority_floor,
-        }
-
     def _extract_text_with_context(self, text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
             return text
@@ -1847,38 +1438,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         end_text = text[-end_chars:]
 
         return start_text + "\n[...]\n" + end_text
-
-    def _calculate_rule_boosts(self, prep, allowed_intents: Dict[str, Dict]) -> Dict[str, float]:
-        boosts: Dict[str, float] = defaultdict(float)
-        text = (prep.canonical_text or "").lower()
-        lemmas = [str(x).lower() for x in (prep.lemmas or [])]
-        tokens = [str(x).lower() for x in (prep.tokens or [])]
-        bag = lemmas + tokens
-
-        for intent_id, meta in allowed_intents.items():
-            keywords = meta.get("keywords") or []
-            hit_count = 0
-            for kw in keywords:
-                key = str(kw).strip().lower()
-                if not key:
-                    continue
-                if " " in key:
-                    if key in text:
-                        hit_count += 1
-                    continue
-                if any(t.startswith(key) for t in bag):
-                    hit_count += 1
-                elif re.search(rf"\b{re.escape(key)}\w*", text):
-                    hit_count += 1
-
-            if hit_count > 0:
-                boosts[intent_id] += min(0.34, 0.11 * hit_count)
-
-        non_triage_score = sum(v for k, v in boosts.items() if k != "misc.triage")
-        if non_triage_score >= 0.11 and "misc.triage" in allowed_intents:
-            boosts["misc.triage"] -= min(0.22, 0.5 * non_triage_score)
-
-        return dict(boosts)
 
     def _calculate_confidence(self, sims: torch.Tensor, best_idx: int) -> float:
         sorted_sims = torch.sort(sims, descending=True)[0]

@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import hmac
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import sys
@@ -13,6 +16,8 @@ import urllib.error
 import urllib.request
 import uuid
 from typing import Dict, Iterable, List, Tuple
+
+from pii_redactor import redact_segments
 
 
 ALLOWED_DEFAULT_EXTS = [".mp3", ".wav", ".m4a", ".flac", ".ogg"]
@@ -38,6 +43,13 @@ INFORMATIVE_PATTERNS = [
     re.compile(r"\b(не работает|ошибк|проблем|вопрос|интересует|хочу|нужно|стоим|цена|договор|заказ|возврат)\b", re.IGNORECASE),
     re.compile(r"\b(ваканс|размещени|сотрудник|обучени|конференц|приглаш)\b", re.IGNORECASE),
 ]
+
+
+def _stable_hash(value: str, salt: str, prefix: str) -> str:
+    payload = str(value or "").strip().encode("utf-8")
+    key = str(salt).encode("utf-8")
+    digest = hmac.new(key, payload, hashlib.sha256).hexdigest()[:16]
+    return f"{prefix}_{digest}"
 
 
 def _http_json(
@@ -71,7 +83,7 @@ def _encode_multipart_form(
     file_field: str,
     file_path: Path,
 ) -> Tuple[bytes, str]:
-    boundary = f"----batch-label-{uuid.uuid4().hex}"
+    boundary = f"----secure-label-{uuid.uuid4().hex}"
     chunks: List[bytes] = []
 
     for name, value in fields.items():
@@ -94,7 +106,6 @@ def _encode_multipart_form(
     chunks.append(file_bytes)
     chunks.append(b"\r\n")
     chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
-
     return b"".join(chunks), boundary
 
 
@@ -104,10 +115,8 @@ def _http_multipart_json(
     file_path: Path,
     headers: Dict[str, str] | None = None,
     timeout: int = 3600,
-    extra_fields: Dict[str, str] | None = None,
 ) -> Dict[str, object]:
-    form_fields = dict(extra_fields or {})
-    body, boundary = _encode_multipart_form(form_fields, file_field=file_field, file_path=file_path)
+    body, boundary = _encode_multipart_form({}, file_field=file_field, file_path=file_path)
     req_headers = {"Accept": "application/json", "Content-Type": f"multipart/form-data; boundary={boundary}"}
     if headers:
         req_headers.update(headers)
@@ -156,10 +165,7 @@ def _is_greeting(text: str) -> bool:
     t = _normalize_text(text)
     if not t:
         return False
-    for pat in GREETING_PATTERNS:
-        if pat.match(t):
-            return True
-    return False
+    return any(pat.match(t) for pat in GREETING_PATTERNS)
 
 
 def _is_low_information(text: str) -> bool:
@@ -169,9 +175,7 @@ def _is_low_information(text: str) -> bool:
     if t in LOW_INFO_EXACT:
         return True
     words = [w for w in t.split(" ") if w]
-    if len(words) <= 2 and t.replace(".", "") in LOW_INFO_EXACT:
-        return True
-    return False
+    return len(words) <= 2 and t.replace(".", "") in LOW_INFO_EXACT
 
 
 def _segment_score(seg: Dict[str, object]) -> float:
@@ -244,18 +248,15 @@ def _build_training_sample(
         base = _join_segments_text(caller or clean_segments)
         return _truncate_safely(base, max_chars)
 
-    # smart mode:
     scored: List[Tuple[float, int, Dict[str, object]]] = []
     for i, seg in enumerate(clean_segments):
         score = _segment_score(seg)
         if score <= -0.4:
             continue
         scored.append((score, i, seg))
-
     if not scored:
         return _truncate_safely(_join_segments_text(clean_segments), max_chars)
 
-    # Keep the first meaningful caller segment for context anchor.
     anchor_idx: int | None = None
     for i, seg in enumerate(clean_segments):
         role = str(seg.get("role") or "").strip().lower()
@@ -264,101 +265,36 @@ def _build_training_sample(
             anchor_idx = i
             break
 
-    # Pick best segments by score, then restore chronological order.
     top = sorted(scored, key=lambda x: (x[0], -x[1]), reverse=True)[: max(1, max_segments)]
     chosen_indices = {idx for _, idx, _ in top}
     if anchor_idx is not None:
         chosen_indices.add(anchor_idx)
-
     ordered = [clean_segments[i] for i in sorted(chosen_indices)]
     ordered = ordered[: max(1, max_segments)]
-    text = _join_segments_text(ordered)
-    return _truncate_safely(text, max_chars)
-
-
-def _extract_row(
-    source_file: Path,
-    payload: Dict[str, object],
-    max_sample_chars: int,
-    include_ai_hints: bool,
-    sample_mode: str,
-    max_sample_segments: int,
-) -> Dict[str, str]:
-    transcript = payload.get("transcript") if isinstance(payload.get("transcript"), dict) else {}
-    routing = payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
-    segments = transcript.get("segments") if isinstance(transcript.get("segments"), list) else []
-    safe_segments = [s for s in segments if isinstance(s, dict)]
-
-    transcript_text = _join_segments_text(safe_segments)
-    training_sample = _build_training_sample(
-        safe_segments,
-        max_chars=max_sample_chars,
-        mode=sample_mode,
-        max_segments=max_sample_segments,
-    )
-    call_id = str(payload.get("call_id") or transcript.get("call_id") or "").strip() or source_file.stem
-
-    row = {
-        "source_file": str(source_file),
-        "call_id": call_id,
-        "training_sample": training_sample,
-        "transcript_text": transcript_text,
-        "transcript_segments": json.dumps(safe_segments, ensure_ascii=False),
-        "final_intent_id": "",
-        "final_group_id": "",
-        "final_priority": "",
-        "label_comment": "",
-    }
-    if include_ai_hints:
-        row["ai_intent_id"] = str(routing.get("intent_id") or "")
-        row["ai_confidence"] = str(routing.get("intent_confidence") or "")
-        row["ai_priority"] = str(routing.get("priority") or "")
-        row["ai_group_id"] = str(routing.get("suggested_group") or "")
-    return row
+    return _truncate_safely(_join_segments_text(ordered), max_chars)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Batch process audio and prepare CSV for manual intent/group/priority labeling."
+        description="Secure local dataset preparation: process calls, anonymize transcript, export CSV/JSONL."
     )
     parser.add_argument("--base-url", default="http://localhost:8000", help="Orchestrator base URL.")
     parser.add_argument("--username", required=True, help="Username for /api/v1/auth/login.")
     parser.add_argument("--password", required=True, help="Password for /api/v1/auth/login.")
     parser.add_argument("--input-dir", required=True, help="Directory with audio files.")
-    parser.add_argument("--output-dir", default="", help="Output directory. Default: ./exports/labeling_<timestamp>.")
-    parser.add_argument(
-        "--extensions",
-        default=",".join(ALLOWED_DEFAULT_EXTS),
-        help="Comma-separated allowed file extensions (e.g. .mp3,.wav).",
-    )
+    parser.add_argument("--output-dir", default="", help="Output directory (default: ./exports/secure_dataset_<timestamp>).")
+    parser.add_argument("--extensions", default=",".join(ALLOWED_DEFAULT_EXTS), help="Comma-separated audio extensions.")
     parser.add_argument("--no-recursive", action="store_true", help="Do not scan subdirectories.")
-    parser.add_argument("--limit", type=int, default=0, help="Limit number of files to process (0 = all).")
-    parser.add_argument("--timeout", type=int, default=3600, help="Per-file request timeout in seconds.")
-    parser.add_argument(
-        "--max-training-sample-chars",
-        type=int,
-        default=320,
-        help="Max chars for training_sample field in CSV.",
-    )
-    parser.add_argument(
-        "--training-sample-mode",
-        choices=["smart", "full", "caller_only"],
-        default="smart",
-        help="How to build training_sample.",
-    )
-    parser.add_argument(
-        "--max-training-sample-segments",
-        type=int,
-        default=7,
-        help="Max number of segments used to compose training_sample in smart/caller_only mode.",
-    )
-    parser.add_argument("--save-raw", action="store_true", help="Save per-call raw JSON files.")
-    parser.add_argument(
-        "--include-ai-hints",
-        action="store_true",
-        help="Add ai_* columns (intent/group/priority/confidence) to labeling CSV.",
-    )
-    parser.add_argument("--stop-on-error", action="store_true", help="Stop batch on first error.")
+    parser.add_argument("--limit", type=int, default=0, help="Limit number of files to process (0=all).")
+    parser.add_argument("--timeout", type=int, default=3600, help="Per-file request timeout (sec).")
+    parser.add_argument("--pii-mode", choices=["balanced", "strict"], default="balanced", help="Anonymization mode.")
+    parser.add_argument("--pseudonym-salt", default="", help="Salt for stable pseudonyms (or set DATASET_PSEUDONYM_SALT).")
+    parser.add_argument("--keep-source-filenames", action="store_true", help="Keep relative source file names in CSV.")
+    parser.add_argument("--include-ai-hints", action="store_true", help="Add ai_* predicted columns to CSV.")
+    parser.add_argument("--training-sample-mode", choices=["smart", "full", "caller_only"], default="smart")
+    parser.add_argument("--max-training-sample-chars", type=int, default=320)
+    parser.add_argument("--max-training-sample-segments", type=int, default=7)
+    parser.add_argument("--stop-on-error", action="store_true", help="Stop on first failed file.")
     return parser.parse_args()
 
 
@@ -373,21 +309,22 @@ def main() -> int:
     out_dir = (
         Path(args.output_dir).expanduser().resolve()
         if args.output_dir
-        else (Path.cwd() / "exports" / f"labeling_{time.strftime('%Y%m%d_%H%M%S')}")
+        else (Path.cwd() / "exports" / f"secure_dataset_{time.strftime('%Y%m%d_%H%M%S')}")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    raw_dir = out_dir / "raw_json"
-    if args.save_raw:
-        raw_dir.mkdir(parents=True, exist_ok=True)
 
     exts = [e.strip().lower() for e in args.extensions.split(",") if e.strip()]
     files = _collect_audio_files(input_dir, exts=exts, recursive=not args.no_recursive)
     if args.limit > 0:
         files = files[: args.limit]
-
     if not files:
         print(f"[WARN] no audio files found in {input_dir} with extensions {exts}")
         return 0
+
+    salt = str(args.pseudonym_salt or os.getenv("DATASET_PSEUDONYM_SALT") or "").strip()
+    if not salt:
+        salt = uuid.uuid4().hex
+        print("[WARN] pseudonym salt not provided; using ephemeral salt for this run only.")
 
     print(f"[INFO] files to process: {len(files)}")
     print("[INFO] authenticating...")
@@ -401,14 +338,16 @@ def main() -> int:
     if not token:
         print("[ERROR] login succeeded but token is missing", file=sys.stderr)
         return 2
-
     headers = {"Authorization": f"Bearer {token}"}
-    results_jsonl = out_dir / "results.jsonl"
-    failures_csv = out_dir / "failures.csv"
-    dataset_csv = out_dir / "labeling_dataset.csv"
 
-    dataset_rows: List[Dict[str, str]] = []
+    results_jsonl = out_dir / "secure_results.jsonl"
+    dataset_csv = out_dir / "secure_labeling_dataset.csv"
+    failures_csv = out_dir / "failures.csv"
+
+    rows: List[Dict[str, str]] = []
     failures: List[Dict[str, str]] = []
+    total_masked = 0
+    masked_by_type: Dict[str, int] = {}
 
     for idx, path in enumerate(files, start=1):
         rel = path.relative_to(input_dir) if path.is_relative_to(input_dir) else path
@@ -421,28 +360,64 @@ def main() -> int:
                 headers=headers,
                 timeout=int(args.timeout),
             )
-            enriched = {
-                "source_file": str(rel),
-                "source_abs_path": str(path),
+            transcript = payload.get("transcript") if isinstance(payload.get("transcript"), dict) else {}
+            routing = payload.get("routing") if isinstance(payload.get("routing"), dict) else {}
+            raw_segments = transcript.get("segments") if isinstance(transcript.get("segments"), list) else []
+            safe_segments = [s for s in raw_segments if isinstance(s, dict)]
+            redacted_segments, report = redact_segments(safe_segments, mode=str(args.pii_mode))
+
+            total_masked += int(report.get("entities_masked_total") or 0)
+            for k, v in (report.get("entities_masked_by_type") or {}).items():
+                masked_by_type[str(k)] = masked_by_type.get(str(k), 0) + int(v)
+
+            transcript_text = _join_segments_text(redacted_segments)
+            training_sample = _build_training_sample(
+                redacted_segments,
+                max_chars=max(80, int(args.max_training_sample_chars)),
+                mode=str(args.training_sample_mode),
+                max_segments=max(1, int(args.max_training_sample_segments)),
+            )
+
+            raw_call_id = str(payload.get("call_id") or transcript.get("call_id") or path.stem).strip()
+            call_id = _stable_hash(raw_call_id, salt, "CALL")
+            source_id = str(rel) if args.keep_source_filenames else _stable_hash(str(rel), salt, "SRC")
+
+            row = {
+                "source_id": source_id,
+                "call_id": call_id,
+                "training_sample": training_sample,
+                "transcript_text": transcript_text,
+                "transcript_segments": json.dumps(redacted_segments, ensure_ascii=False),
+                "final_intent_id": "",
+                "final_group_id": "",
+                "final_priority": "",
+                "label_comment": "",
+            }
+            if args.include_ai_hints:
+                row["ai_intent_id"] = str(routing.get("intent_id") or "")
+                row["ai_confidence"] = str(routing.get("intent_confidence") or "")
+                row["ai_priority"] = str(routing.get("priority") or "")
+                row["ai_group_id"] = str(routing.get("suggested_group") or "")
+            rows.append(row)
+
+            safe_result = {
+                "source_id": source_id,
+                "call_id": call_id,
                 "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "response": payload,
+                "routing": {
+                    "intent_id": str(routing.get("intent_id") or ""),
+                    "intent_confidence": routing.get("intent_confidence"),
+                    "priority": str(routing.get("priority") or ""),
+                    "suggested_group": str(routing.get("suggested_group") or ""),
+                },
+                "transcript": {
+                    "segments": redacted_segments,
+                    "role_mapping": transcript.get("role_mapping") if isinstance(transcript.get("role_mapping"), dict) else {},
+                },
+                "redaction_report": report,
             }
             with results_jsonl.open("a", encoding="utf-8") as jf:
-                jf.write(json.dumps(enriched, ensure_ascii=False) + "\n")
-
-            row = _extract_row(
-                rel,
-                payload,
-                max_sample_chars=int(args.max_training_sample_chars),
-                include_ai_hints=bool(args.include_ai_hints),
-                sample_mode=str(args.training_sample_mode),
-                max_sample_segments=max(1, int(args.max_training_sample_segments)),
-            )
-            dataset_rows.append(row)
-
-            if args.save_raw:
-                raw_name = f"{idx:05d}_{path.stem}.json"
-                (raw_dir / raw_name).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                jf.write(json.dumps(safe_result, ensure_ascii=False) + "\n")
         except Exception as exc:
             msg = str(exc)
             print(f"  [ERROR] {msg}", file=sys.stderr)
@@ -450,9 +425,9 @@ def main() -> int:
             if args.stop_on_error:
                 break
 
-    if dataset_rows:
+    if rows:
         fieldnames = [
-            "source_file",
+            "source_id",
             "call_id",
             "training_sample",
             "transcript_text",
@@ -464,7 +439,7 @@ def main() -> int:
         ]
         if args.include_ai_hints:
             fieldnames = [
-                "source_file",
+                "source_id",
                 "call_id",
                 "ai_intent_id",
                 "ai_confidence",
@@ -481,7 +456,7 @@ def main() -> int:
         with dataset_csv.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(dataset_rows)
+            writer.writerows(rows)
 
     if failures:
         with failures_csv.open("w", encoding="utf-8-sig", newline="") as f:
@@ -493,14 +468,14 @@ def main() -> int:
         "input_dir": str(input_dir),
         "output_dir": str(out_dir),
         "total_files": len(files),
-        "processed_ok": len(dataset_rows),
+        "processed_ok": len(rows),
         "failed": len(failures),
+        "pii_mode": str(args.pii_mode),
+        "entities_masked_total": int(total_masked),
+        "entities_masked_by_type": dict(sorted(masked_by_type.items())),
         "results_jsonl": str(results_jsonl) if results_jsonl.exists() else "",
         "dataset_csv": str(dataset_csv) if dataset_csv.exists() else "",
         "failures_csv": str(failures_csv) if failures_csv.exists() else "",
-        "training_sample_mode": str(args.training_sample_mode),
-        "max_training_sample_chars": int(args.max_training_sample_chars),
-        "max_training_sample_segments": int(args.max_training_sample_segments),
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 

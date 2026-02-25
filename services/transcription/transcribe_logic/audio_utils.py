@@ -156,5 +156,4 @@ def is_fake_stereo(audio_path: str) -> bool:
         l = rms_db(left)
         r = rms_db(right)
 
-        # раньше было 1.0 — теперь из конфига
         return abs(l - r) < CFG.stereo.rms_diff_db

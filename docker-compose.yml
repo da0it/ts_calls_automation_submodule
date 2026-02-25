@@ -82,29 +82,21 @@ services:
       ROUTER_FEEDBACK_PATH: /shared-config/routing_feedback.jsonl
       ROUTER_TUNED_MODEL_PATH: /shared-config/router_tuned_head.pt
       ROUTER_ADMIN_PORT: 8082
-      ROUTER_TUNED_BLEND: 1.0
-      ROUTER_FINETUNED_ENABLED: "0"
+      ROUTER_TUNED_BLEND: 0.0
+      ROUTER_FINETUNED_ENABLED: "1"
       ROUTER_FINETUNED_MODEL_PATH: /shared-config/router_finetuned_model
-      ROUTER_FINETUNED_BLEND: 0.45
+      ROUTER_FINETUNED_BLEND: 1.0
       ROUTER_FINETUNED_LR: 2e-5
       ROUTER_FINETUNED_EPOCHS: 3
       ROUTER_FINETUNED_BATCH_SIZE: 16
       ROUTER_FINETUNED_MAX_LENGTH: 256
       ROUTER_FINETUNED_WEIGHT_DECAY: 0.01
+      ROUTER_DIALOG_HEAD_ENABLED: "0"
       ROUTER_TRAIN_EPOCHS: 90
       ROUTER_TRAIN_BATCH_SIZE: 32
       ROUTER_TRAIN_LR: 0.01
       ROUTER_TRAIN_VAL_RATIO: 0.2
       ROUTER_TRAIN_SEED: 42
-      ROUTER_CHUNK_INFERENCE_ENABLED: "1"
-      ROUTER_CHUNK_MAX_CHARS: 1200
-      ROUTER_CHUNK_OVERLAP_TURNS: 1
-      ROUTER_CHUNK_MAX_COUNT: 8
-      ROUTER_CHUNK_LATE_WEIGHT: 0.25
-      ROUTER_CHUNK_BLEND: 0.35
-      ROUTER_URGENCY_ESCALATION_ENABLED: "1"
-      ROUTER_URGENCY_PRIORITY_FLOOR: high
-      ROUTER_URGENCY_PATTERNS: "вся компания;все сотрудники;не можем работать;работа стоит;простой;sla;production down;критическ"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     volumes:
@@ -194,6 +186,7 @@ services:
       ROUTING_AUTO_LEARN_LIMIT: "50"
       ROUTER_ADMIN_URL: http://router:8082
       ROUTER_ADMIN_TIMEOUT_SECONDS: "600"
+      ORCH_DELETE_UPLOADED_AUDIO_AFTER_PROCESS: "1"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/tickets?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32chars}
       JWT_EXPIRY_HOURS: "24"

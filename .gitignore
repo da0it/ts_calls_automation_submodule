@@ -36,6 +36,9 @@ services/orchestrator/uploads/
 configs/*.env
 !configs/*.env.example
 
+# For feedback safety
+configs/
+
 # ==========================
 # Docker
 # ==========================

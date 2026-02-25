@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"orchestrator/internal/services"
@@ -18,6 +19,21 @@ type ProcessHandler struct {
 	routingFeedbackService *services.RoutingFeedbackService
 	routingModelService    *services.RoutingModelService
 	uploadDir              string
+}
+
+func envBool(name string, def bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	if raw == "" {
+		return def
+	}
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }
 
 func NewProcessHandler(
@@ -95,14 +111,22 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	}
 
 	log.Printf("Audio saved to: %s", audioPath)
+	deleteAfterProcess := envBool("ORCH_DELETE_UPLOADED_AUDIO_AFTER_PROCESS", true)
+	if deleteAfterProcess {
+		defer func() {
+			if rmErr := os.Remove(audioPath); rmErr != nil && !os.IsNotExist(rmErr) {
+				log.Printf("Failed to remove uploaded audio %s: %v", audioPath, rmErr)
+			}
+		}()
+	}
 
 	// 3. Запускаем обработку
 	result, err := h.orchestrator.ProcessCall(audioPath)
 	if err != nil {
 		log.Printf("Processing failed: %v", err)
 
-		// Удаляем файл при ошибке
-		os.Remove(audioPath)
+		// Удаляем файл при ошибке, даже если cleanup on success выключен.
+		_ = os.Remove(audioPath)
 
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("processing failed: %v", err),

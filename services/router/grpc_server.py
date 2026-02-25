@@ -311,12 +311,12 @@ def serve() -> None:
     feedback_path = os.getenv("ROUTER_FEEDBACK_PATH", str(Path(__file__).parent / "configs" / "routing_feedback.jsonl"))
     tuned_model_path = os.getenv("ROUTER_TUNED_MODEL_PATH", str(Path(__file__).parent / "configs" / "router_tuned_head.pt"))
     tuned_blend_alpha = float(os.getenv("ROUTER_TUNED_BLEND", "0.65"))
-    finetuned_enabled = os.getenv("ROUTER_FINETUNED_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+    finetuned_enabled = os.getenv("ROUTER_FINETUNED_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
     finetuned_model_path = os.getenv(
         "ROUTER_FINETUNED_MODEL_PATH",
         str(Path(__file__).parent / "configs" / "router_finetuned_model"),
     )
-    finetuned_blend_alpha = float(os.getenv("ROUTER_FINETUNED_BLEND", "0.45"))
+    finetuned_blend_alpha = float(os.getenv("ROUTER_FINETUNED_BLEND", "1.0"))
     finetuned_learning_rate = float(os.getenv("ROUTER_FINETUNED_LR", "2e-5"))
     finetuned_epochs = int(os.getenv("ROUTER_FINETUNED_EPOCHS", "3"))
     finetuned_batch_size = int(os.getenv("ROUTER_FINETUNED_BATCH_SIZE", "16"))
@@ -330,30 +330,6 @@ def serve() -> None:
     dialog_dropout = float(os.getenv("ROUTER_DIALOG_DROPOUT", "0.1"))
     dialog_max_turns = int(os.getenv("ROUTER_DIALOG_MAX_TURNS", "64"))
     dialog_max_turn_chars = int(os.getenv("ROUTER_DIALOG_MAX_TURN_CHARS", "280"))
-    chunk_inference_enabled = os.getenv("ROUTER_CHUNK_INFERENCE_ENABLED", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    chunk_max_chars = int(os.getenv("ROUTER_CHUNK_MAX_CHARS", "1200"))
-    chunk_overlap_turns = int(os.getenv("ROUTER_CHUNK_OVERLAP_TURNS", "1"))
-    chunk_max_count = int(os.getenv("ROUTER_CHUNK_MAX_COUNT", "8"))
-    chunk_late_weight = float(os.getenv("ROUTER_CHUNK_LATE_WEIGHT", "0.25"))
-    chunk_blend_alpha = float(os.getenv("ROUTER_CHUNK_BLEND", "0.35"))
-    urgency_escalation_enabled = os.getenv("ROUTER_URGENCY_ESCALATION_ENABLED", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
-    urgency_priority_floor = os.getenv("ROUTER_URGENCY_PRIORITY_FLOOR", "high")
-    urgency_patterns_raw = os.getenv("ROUTER_URGENCY_PATTERNS", "")
-    urgency_patterns = [
-        part.strip()
-        for part in urgency_patterns_raw.split(";")
-        if part.strip()
-    ]
 
     train_defaults = {
         "epochs": int(os.getenv("ROUTER_TRAIN_EPOCHS", "90")),
@@ -386,15 +362,6 @@ def serve() -> None:
         dialog_dropout=dialog_dropout,
         dialog_max_turns=dialog_max_turns,
         dialog_max_turn_chars=dialog_max_turn_chars,
-        chunk_inference_enabled=chunk_inference_enabled,
-        chunk_max_chars=chunk_max_chars,
-        chunk_overlap_turns=chunk_overlap_turns,
-        chunk_max_count=chunk_max_count,
-        chunk_late_weight=chunk_late_weight,
-        chunk_blend_alpha=chunk_blend_alpha,
-        urgency_escalation_enabled=urgency_escalation_enabled,
-        urgency_priority_floor=urgency_priority_floor,
-        urgency_patterns=urgency_patterns if urgency_patterns else None,
     )
 
     routing_service = RoutingService(
