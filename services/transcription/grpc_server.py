@@ -57,6 +57,27 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _build_grpc_server_credentials(prefix: str):
+    tls_enabled = _env_bool(f"{prefix}_TLS_ENABLED", _env_bool("GRPC_TLS_ENABLED", False))
+    if not tls_enabled:
+        return None
+
+    cert_file = os.getenv(f"{prefix}_TLS_CERT_FILE", "").strip()
+    key_file = os.getenv(f"{prefix}_TLS_KEY_FILE", "").strip()
+    if not cert_file or not key_file:
+        raise RuntimeError(
+            f"{prefix}_TLS_ENABLED=1 but cert/key path is empty "
+            f"({prefix}_TLS_CERT_FILE, {prefix}_TLS_KEY_FILE)"
+        )
+
+    with open(cert_file, "rb") as cert_f:
+        cert_data = cert_f.read()
+    with open(key_file, "rb") as key_f:
+        key_data = key_f.read()
+
+    return grpc.ssl_server_credentials(((key_data, cert_data),))
+
+
 class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
     """gRPC сервис для транскрибации на WhisperX."""
     
@@ -208,7 +229,13 @@ def serve():
     
     # Привязываем к порту
     server_address = f"{host}:{port}"
-    server.add_insecure_port(server_address)
+    creds = _build_grpc_server_credentials("TRANSCRIPTION_GRPC")
+    if creds is not None:
+        server.add_secure_port(server_address, creds)
+        logger.info("Transcription gRPC TLS enabled")
+    else:
+        server.add_insecure_port(server_address)
+        logger.info("Transcription gRPC running without TLS")
     
     logger.info(f"Starting transcription server on {server_address}")
     logger.info(f"Max workers: {max_workers}")

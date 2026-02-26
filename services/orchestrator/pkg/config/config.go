@@ -5,13 +5,20 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	HTTPPort string
-	GRPCPort string
+	HTTPPort        string
+	GRPCPort        string
+	HTTPTLSEnabled  bool
+	HTTPTLSCertFile string
+	HTTPTLSKeyFile  string
+	GRPCTLSEnabled  bool
+	GRPCTLSCertFile string
+	GRPCTLSKeyFile  string
 
 	// gRPC адреса сервисов
 	TranscriptionGRPCAddr     string
@@ -32,8 +39,8 @@ type Config struct {
 	DatabaseURL    string
 	JWTSecret      string
 	JWTExpiryHours int
-	AdminUsername   string
-	AdminPassword   string
+	AdminUsername  string
+	AdminPassword  string
 }
 
 func Load() *Config {
@@ -42,6 +49,12 @@ func Load() *Config {
 	cfg := &Config{
 		HTTPPort:                  getEnv("HTTP_PORT", getEnv("SERVER_PORT", "8000")),
 		GRPCPort:                  getEnv("GRPC_PORT", "9000"),
+		HTTPTLSEnabled:            getEnvBool("HTTP_TLS_ENABLED", false),
+		HTTPTLSCertFile:           getEnv("HTTP_TLS_CERT_FILE", ""),
+		HTTPTLSKeyFile:            getEnv("HTTP_TLS_KEY_FILE", ""),
+		GRPCTLSEnabled:            getEnvBool("ORCH_GRPC_TLS_ENABLED", false),
+		GRPCTLSCertFile:           getEnv("ORCH_GRPC_TLS_CERT_FILE", ""),
+		GRPCTLSKeyFile:            getEnv("ORCH_GRPC_TLS_KEY_FILE", ""),
 		TranscriptionGRPCAddr:     getEnv("TRANSCRIPTION_GRPC_ADDR", "localhost:50051"),
 		RoutingGRPCAddr:           getEnv("ROUTING_GRPC_ADDR", "localhost:50052"),
 		TicketGRPCAddr:            getEnv("TICKET_GRPC_ADDR", "localhost:50054"),
@@ -59,8 +72,8 @@ func Load() *Config {
 		DatabaseURL:    getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/tickets?sslmode=disable"),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
 		JWTExpiryHours: getEnvInt("JWT_EXPIRY_HOURS", 24),
-		AdminUsername:   getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:   getEnv("ADMIN_PASSWORD", ""),
+		AdminUsername:  getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:  getEnv("ADMIN_PASSWORD", ""),
 	}
 
 	if cfg.JWTSecret == "" {
@@ -70,6 +83,8 @@ func Load() *Config {
 	log.Printf("Orchestrator config loaded:")
 	log.Printf("  - HTTP port: %s", cfg.HTTPPort)
 	log.Printf("  - gRPC port: %s", cfg.GRPCPort)
+	log.Printf("  - HTTP TLS enabled: %v", cfg.HTTPTLSEnabled)
+	log.Printf("  - gRPC TLS enabled: %v", cfg.GRPCTLSEnabled)
 	log.Printf("  - Transcription gRPC: %s", cfg.TranscriptionGRPCAddr)
 	log.Printf("  - Routing gRPC: %s", cfg.RoutingGRPCAddr)
 	log.Printf("  - Ticket gRPC: %s", cfg.TicketGRPCAddr)
@@ -105,4 +120,19 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	value := strings.TrimSpace(strings.ToLower(getEnv(key, "")))
+	if value == "" {
+		return defaultValue
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
 }

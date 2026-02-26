@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"orchestrator/internal/models"
 	"orchestrator/internal/services"
 )
 
@@ -18,6 +19,7 @@ type ProcessHandler struct {
 	routingConfigService   *services.RoutingConfigService
 	routingFeedbackService *services.RoutingFeedbackService
 	routingModelService    *services.RoutingModelService
+	auditService           *services.AuditService
 	uploadDir              string
 }
 
@@ -41,6 +43,7 @@ func NewProcessHandler(
 	routingConfigService *services.RoutingConfigService,
 	routingFeedbackService *services.RoutingFeedbackService,
 	routingModelService *services.RoutingModelService,
+	auditService *services.AuditService,
 ) *ProcessHandler {
 	// Создаём директорию для загрузки файлов
 	uploadDir := "./uploads"
@@ -51,7 +54,48 @@ func NewProcessHandler(
 		routingConfigService:   routingConfigService,
 		routingFeedbackService: routingFeedbackService,
 		routingModelService:    routingModelService,
+		auditService:           auditService,
 		uploadDir:              uploadDir,
+	}
+}
+
+func (h *ProcessHandler) writeAudit(
+	c *gin.Context,
+	eventType string,
+	resourceType string,
+	resourceID string,
+	outcome string,
+	details map[string]interface{},
+) {
+	if h.auditService == nil {
+		return
+	}
+
+	var actorUserID *int64
+	actorUsername := ""
+	actorRole := ""
+	if userVal, ok := c.Get("user"); ok {
+		if user, castOK := userVal.(*models.User); castOK && user != nil {
+			actorUserID = &user.ID
+			actorUsername = user.Username
+			actorRole = string(user.Role)
+		}
+	}
+
+	if err := h.auditService.LogEvent(services.AuditEvent{
+		RequestID:     c.GetString("request_id"),
+		ActorUserID:   actorUserID,
+		ActorUsername: actorUsername,
+		ActorRole:     actorRole,
+		EventType:     eventType,
+		ResourceType:  resourceType,
+		ResourceID:    resourceID,
+		Outcome:       outcome,
+		Details:       details,
+		IPAddress:     c.ClientIP(),
+		UserAgent:     c.GetHeader("User-Agent"),
+	}); err != nil {
+		log.Printf("Failed to write audit event (%s): %v", eventType, err)
 	}
 }
 
@@ -70,6 +114,9 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	// 1. Получаем загруженный файл
 	file, err := c.FormFile("audio")
 	if err != nil {
+		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
+			"reason": "missing_audio",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "audio file is required",
 		})
@@ -88,6 +135,11 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 		".ogg":  true,
 	}
 	if !allowedFormats[ext] {
+		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
+			"reason":     "unsupported_audio_format",
+			"audio_ext":  ext,
+			"audio_size": file.Size,
+		})
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": fmt.Sprintf("unsupported audio format: %s (allowed: mp3, wav, m4a, flac, ogg)", ext),
 		})
@@ -104,6 +156,11 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 
 	if err := c.SaveUploadedFile(file, audioPath); err != nil {
 		log.Printf("Failed to save file: %v", err)
+		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
+			"reason":     "save_upload_failed",
+			"audio_ext":  ext,
+			"audio_size": file.Size,
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "failed to save audio file",
 		})
@@ -127,15 +184,49 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 
 		// Удаляем файл при ошибке, даже если cleanup on success выключен.
 		_ = os.Remove(audioPath)
+		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
+			"reason":     "pipeline_failed",
+			"audio_ext":  ext,
+			"audio_size": file.Size,
+		})
 
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Sprintf("processing failed: %v", err),
 		})
 		return
 	}
+	if result == nil {
+		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
+			"reason": "empty_pipeline_result",
+		})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "processing failed: empty pipeline result",
+		})
+		return
+	}
 
 	// 4. Опционально: удаляем файл после обработки
 	// os.Remove(audioPath)
+	segmentsCount := 0
+	intentID := ""
+	priority := ""
+	suggestedGroup := ""
+	if result.Transcript != nil {
+		segmentsCount = len(result.Transcript.Segments)
+	}
+	if result.Routing != nil {
+		intentID = result.Routing.IntentID
+		priority = result.Routing.Priority
+		suggestedGroup = result.Routing.SuggestedGroup
+	}
+	h.writeAudit(c, "call.process", "call", result.CallID, "success", map[string]interface{}{
+		"audio_ext":       ext,
+		"audio_size":      file.Size,
+		"segments_count":  segmentsCount,
+		"intent_id":       intentID,
+		"priority":        priority,
+		"suggested_group": suggestedGroup,
+	})
 
 	c.JSON(http.StatusOK, result)
 }

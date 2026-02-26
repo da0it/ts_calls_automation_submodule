@@ -2,14 +2,25 @@ package templates
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 
 	"notification_sender/internal/adapters"
 	callprocessingv1 "notification_sender/internal/gen"
 )
 
+var (
+	emailPattern      = regexp.MustCompile(`(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b`)
+	phonePattern      = regexp.MustCompile(`\+?\d[\d\-\s\(\)]{8,}\d`)
+	longNumberPattern = regexp.MustCompile(`\b\d{5,}\b`)
+)
+
 // FormatNotification builds the notification payload from pipeline results
 func FormatNotification(req *callprocessingv1.SendNotificationRequest) *adapters.NotificationPayload {
+	includePII := envBool("NOTIFICATION_INCLUDE_PII", false)
+	redactSummary := envBool("NOTIFICATION_REDACT_SUMMARY", true)
+
 	ticket := req.GetTicket()
 	routing := req.GetRouting()
 	entities := req.GetEntities()
@@ -30,6 +41,9 @@ func FormatNotification(req *callprocessingv1.SendNotificationRequest) *adapters
 	orderIDs := entityValues(entities.GetOrderIds())
 
 	emoji := priorityEmoji(priority)
+	if redactSummary {
+		summary = redactSensitiveText(summary, persons, phones, emails, orderIDs)
+	}
 
 	// --- Subject ---
 	subject := fmt.Sprintf("%s [%s] Тикет %s — %s",
@@ -48,10 +62,17 @@ func FormatNotification(req *callprocessingv1.SendNotificationRequest) *adapters
 	if summary != "" {
 		fmt.Fprintf(&text, "Содержание звонка:\n%s\n\n", summary)
 	}
-	appendList(&text, "Клиенты", persons)
-	appendList(&text, "Телефоны", phones)
-	appendList(&text, "Email", emails)
-	appendList(&text, "Заказы", orderIDs)
+	if includePII {
+		appendList(&text, "Клиенты", persons)
+		appendList(&text, "Телефоны", phones)
+		appendList(&text, "Email", emails)
+		appendList(&text, "Заказы", orderIDs)
+	} else {
+		appendCount(&text, "Клиенты", len(persons))
+		appendCount(&text, "Телефоны", len(phones))
+		appendCount(&text, "Email", len(emails))
+		appendCount(&text, "Заказы", len(orderIDs))
+	}
 
 	// --- Markdown (Telegram / Slack) ---
 	var md strings.Builder
@@ -67,10 +88,17 @@ func FormatNotification(req *callprocessingv1.SendNotificationRequest) *adapters
 	if summary != "" {
 		fmt.Fprintf(&md, "\n*Содержание:*\n%s\n", summary)
 	}
-	appendListMd(&md, "Клиенты", persons)
-	appendListMd(&md, "Телефоны", phones)
-	appendListMd(&md, "Email", emails)
-	appendListMd(&md, "Заказы", orderIDs)
+	if includePII {
+		appendListMd(&md, "Клиенты", persons)
+		appendListMd(&md, "Телефоны", phones)
+		appendListMd(&md, "Email", emails)
+		appendListMd(&md, "Заказы", orderIDs)
+	} else {
+		appendCountMd(&md, "Клиенты", len(persons))
+		appendCountMd(&md, "Телефоны", len(phones))
+		appendCountMd(&md, "Email", len(emails))
+		appendCountMd(&md, "Заказы", len(orderIDs))
+	}
 
 	// --- HTML (email) ---
 	var html strings.Builder
@@ -88,10 +116,17 @@ func FormatNotification(req *callprocessingv1.SendNotificationRequest) *adapters
 	if summary != "" {
 		fmt.Fprintf(&html, "<h3>Содержание звонка</h3><pre>%s</pre>", summary)
 	}
-	appendListHTML(&html, "Клиенты", persons)
-	appendListHTML(&html, "Телефоны", phones)
-	appendListHTML(&html, "Email", emails)
-	appendListHTML(&html, "Заказы", orderIDs)
+	if includePII {
+		appendListHTML(&html, "Клиенты", persons)
+		appendListHTML(&html, "Телефоны", phones)
+		appendListHTML(&html, "Email", emails)
+		appendListHTML(&html, "Заказы", orderIDs)
+	} else {
+		appendCountHTML(&html, "Клиенты", len(persons))
+		appendCountHTML(&html, "Телефоны", len(phones))
+		appendCountHTML(&html, "Email", len(emails))
+		appendCountHTML(&html, "Заказы", len(orderIDs))
+	}
 
 	return &adapters.NotificationPayload{
 		Subject:  subject,
@@ -134,6 +169,49 @@ func entityValues(entities []*callprocessingv1.ExtractedEntity) []string {
 	return vals
 }
 
+func redactSensitiveText(text string, persons, phones, emails, orderIDs []string) string {
+	if text == "" {
+		return text
+	}
+	out := text
+	out = emailPattern.ReplaceAllString(out, "[EMAIL]")
+	out = phonePattern.ReplaceAllString(out, "[PHONE]")
+	out = longNumberPattern.ReplaceAllString(out, "[ID]")
+	out = replaceValues(out, persons, "[PERSON]")
+	out = replaceValues(out, phones, "[PHONE]")
+	out = replaceValues(out, emails, "[EMAIL]")
+	out = replaceValues(out, orderIDs, "[ORDER_ID]")
+	return out
+}
+
+func replaceValues(text string, values []string, token string) string {
+	out := text
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if len([]rune(value)) < 3 {
+			continue
+		}
+		pattern := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(value))
+		out = pattern.ReplaceAllString(out, token)
+	}
+	return out
+}
+
+func envBool(name string, def bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	if raw == "" {
+		return def
+	}
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
+}
+
 func priorityEmoji(p string) string {
 	switch strings.ToLower(p) {
 	case "critical":
@@ -154,6 +232,13 @@ func appendList(sb *strings.Builder, label string, items []string) {
 	fmt.Fprintf(sb, "%s: %s\n", label, strings.Join(items, ", "))
 }
 
+func appendCount(sb *strings.Builder, label string, count int) {
+	if count <= 0 {
+		return
+	}
+	fmt.Fprintf(sb, "%s: %d\n", label, count)
+}
+
 func appendListMd(sb *strings.Builder, label string, items []string) {
 	if len(items) == 0 {
 		return
@@ -161,11 +246,25 @@ func appendListMd(sb *strings.Builder, label string, items []string) {
 	fmt.Fprintf(sb, "*%s:* %s\n", label, strings.Join(items, ", "))
 }
 
+func appendCountMd(sb *strings.Builder, label string, count int) {
+	if count <= 0 {
+		return
+	}
+	fmt.Fprintf(sb, "*%s:* %d\n", label, count)
+}
+
 func appendListHTML(sb *strings.Builder, label string, items []string) {
 	if len(items) == 0 {
 		return
 	}
 	fmt.Fprintf(sb, "<p><strong>%s:</strong> %s</p>", label, strings.Join(items, ", "))
+}
+
+func appendCountHTML(sb *strings.Builder, label string, count int) {
+	if count <= 0 {
+		return
+	}
+	fmt.Fprintf(sb, "<p><strong>%s:</strong> %d</p>", label, count)
 }
 
 func htmlRow(sb *strings.Builder, label, value string) {

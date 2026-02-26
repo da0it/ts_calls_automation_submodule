@@ -9,7 +9,6 @@ import (
 	callprocessingv1 "orchestrator/internal/gen"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -19,10 +18,7 @@ type TicketClient struct {
 }
 
 func NewTicketClient(addr string) (*TicketClient, error) {
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpcConnForService(addr, "TICKET_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial ticket grpc: %w", err)
 	}

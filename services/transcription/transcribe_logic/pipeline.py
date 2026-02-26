@@ -5,9 +5,10 @@ import os
 import tempfile
 from typing import Any, Dict, List, Optional
 from transcribe_logic.audio_utils import to_wav_16k_mono_preprocessed
-from transcribe_logic.roles import infer_role_map_from_segments, assign_roles_to_segments
 from transcribe_logic.whisperx_ext import whisperx_diarize_via_cli
 from transcribe_logic.whisperx_runtime import whisperx_diarize_inprocess
+
+ROLE_UNKNOWN = "не определено"
 
 def _default_whisperx_venv_python() -> str:
     return os.getenv(
@@ -112,6 +113,16 @@ def _ensure_speakers_exist(segments: List[Dict[str, Any]]) -> List[Dict[str, Any
     return segments
 
 
+def _unknown_role_map(segments: List[Dict[str, Any]]) -> Dict[str, str]:
+    speakers = sorted({str(s.get("speaker")) for s in segments if s.get("speaker")})
+    return {spk: ROLE_UNKNOWN for spk in speakers}
+
+
+def _mark_segments_unknown_role(segments: List[Dict[str, Any]]) -> None:
+    for seg in segments:
+        seg["role"] = ROLE_UNKNOWN
+
+
 def transcribe_with_roles(
     audio_path: str,
     *,
@@ -121,7 +132,7 @@ def transcribe_with_roles(
     """
     Пайплайн WhisperX:
       input audio -> mono wav 16k -> whisperx transcribe+align+diarization
-      -> infer roles (ответчик/звонящий/не определено) по таймингу + ключевым фразам
+      -> роли (по умолчанию выключены, помечаются как "не определено")
     """
     if hf_token:
         # Поддерживаем прежний интерфейс вызова.
@@ -159,7 +170,7 @@ def transcribe_with_roles(
             )
             mode = "whisperx_cli"
         note = (
-            f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align+{diarization_backend} diarization -> role inference."
+            f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align+{diarization_backend} diarization."
         )
 
         if not segments:
@@ -188,9 +199,10 @@ def transcribe_with_roles(
                 max_gap=float(os.getenv("WHISPERX_MERGE_GAP_SEC", "0.35")),
             )
 
-        # 5) роли по сегментам (тайминг + фразы)
-        role_map = infer_role_map_from_segments(segments)
-        role_map = assign_roles_to_segments(segments, role_map)
+        # 5) MVP: роль в диалоге не выводим, используем только diarization speakers.
+        _mark_segments_unknown_role(segments)
+        role_map = _unknown_role_map(segments)
+        note += " Role inference: disabled (all roles = unknown)."
 
         return {
             "mode": mode,

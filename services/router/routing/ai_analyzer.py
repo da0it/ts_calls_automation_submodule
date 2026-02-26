@@ -1,6 +1,8 @@
-# routing/ai_analyzer.py
 from __future__ import annotations
 
+from collections import defaultdict
+from pathlib import Path
+from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 import json
 import logging
@@ -8,48 +10,16 @@ import os
 import random
 import re
 import time
-from collections import defaultdict
-from pathlib import Path
-from threading import RLock
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from .dialog_head import (
-    DialogTransformerHead,
-    DialogTurn,
-    ROLE_AGENT,
-    ROLE_CALLER,
-    ROLE_SYSTEM,
-    ROLE_UNKNOWN,
-    ROLE_VOCAB_SIZE,
-)
 from .models import AIAnalysis, CallInput, Evidence, IntentResult, Priority
 from .nlp_preprocess import PreprocessConfig, build_canonical
 
 logger = logging.getLogger(__name__)
-
-
-def _fmt_ts(seconds: float) -> str:
-    s = int(max(0, seconds))
-    hh = s // 3600
-    mm = (s % 3600) // 60
-    ss = s % 60
-    return f"{hh:02d}:{mm:02d}:{ss:02d}" if hh > 0 else f"{mm:02d}:{ss:02d}"
-
-
-def _l2_normalize(v: torch.Tensor) -> torch.Tensor:
-    return v / (v.norm(p=2, dim=-1, keepdim=True) + 1e-12)
-
-
-@torch.inference_mode()
-def _mean_pool(last_hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    mask = attention_mask.unsqueeze(-1).to(last_hidden.dtype)
-    s = (last_hidden * mask).sum(dim=1)
-    d = mask.sum(dim=1).clamp(min=1e-9)
-    return s / d
 
 
 class AIAnalyzer:
@@ -58,6 +28,11 @@ class AIAnalyzer:
 
 
 class RubertEmbeddingAnalyzer(AIAnalyzer):
+    """
+    Router analyzer in a simplified "fine-tuned model only" mode.
+    If no fine-tuned model is available or confidence is too low, routes to misc.triage.
+    """
+
     def __init__(
         self,
         model_name: str = "ai-forever/ruBert-base",
@@ -66,47 +41,21 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         max_text_chars: int = 4000,
         preprocess_cfg: Optional[PreprocessConfig] = None,
         tuned_model_path: Optional[str] = None,
-        tuned_blend_alpha: float = 0.65,
+        tuned_blend_alpha: float = 0.0,  # kept for backward-compatible config, unused
         finetuned_enabled: bool = False,
         finetuned_model_path: Optional[str] = None,
-        finetuned_blend_alpha: float = 0.45,
+        finetuned_blend_alpha: float = 1.0,  # kept for backward-compatible config, unused
         finetuned_learning_rate: float = 2e-5,
         finetuned_epochs: int = 3,
         finetuned_batch_size: int = 16,
         finetuned_max_length: int = 256,
         finetuned_weight_decay: float = 0.01,
-        dialog_head_enabled: bool = True,
-        dialog_blend_alpha: float = 0.55,
-        dialog_d_model: int = 256,
-        dialog_nhead: int = 4,
-        dialog_layers: int = 2,
-        dialog_dropout: float = 0.1,
-        dialog_max_turns: int = 64,
-        dialog_max_turn_chars: int = 280,
+        **_: Any,
     ):
-        self.model_name = model_name
+        self.model_name = str(model_name).strip() or "ai-forever/ruBert-base"
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.min_confidence = min_confidence
-        self.max_text_chars = max_text_chars
-        self.tuned_blend_alpha = max(0.0, min(1.0, float(tuned_blend_alpha)))
-        self.finetuned_enabled = bool(finetuned_enabled)
-        self.finetuned_model_path = str(finetuned_model_path or "").strip()
-        self.finetuned_blend_alpha = max(0.0, min(1.0, float(finetuned_blend_alpha)))
-        self.finetuned_learning_rate = float(max(1e-6, min(1e-3, finetuned_learning_rate)))
-        self.finetuned_epochs = int(max(1, min(12, finetuned_epochs)))
-        self.finetuned_batch_size = int(max(4, min(64, finetuned_batch_size)))
-        self.finetuned_max_length = int(max(64, min(512, finetuned_max_length)))
-        self.finetuned_weight_decay = float(max(0.0, min(0.2, finetuned_weight_decay)))
-        self.dialog_head_enabled = bool(dialog_head_enabled)
-        self.dialog_blend_alpha = max(0.0, min(1.0, float(dialog_blend_alpha)))
-        self.dialog_d_model = int(max(64, min(1024, dialog_d_model)))
-        self.dialog_nhead = int(max(1, min(16, dialog_nhead)))
-        while self.dialog_nhead > 1 and self.dialog_d_model % self.dialog_nhead != 0:
-            self.dialog_nhead -= 1
-        self.dialog_layers = int(max(1, min(8, dialog_layers)))
-        self.dialog_dropout = float(max(0.0, min(0.5, dialog_dropout)))
-        self.dialog_max_turns = int(max(8, min(256, dialog_max_turns)))
-        self.dialog_max_turn_chars = int(max(40, min(1200, dialog_max_turn_chars)))
+        self.min_confidence = float(max(0.0, min(1.0, min_confidence)))
+        self.max_text_chars = int(max(200, min(20000, max_text_chars)))
 
         self.preprocess_cfg = preprocess_cfg or PreprocessConfig(
             drop_fillers=True,
@@ -114,140 +63,102 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             keep_timestamps=True,
             do_lemmatize=True,
             drop_stopwords=False,
-            max_chars=max_text_chars,
+            max_chars=self.max_text_chars,
         )
 
-        logger.info("Loading RuBERT model: %s on %s", model_name, self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(self.device)
-        self.model.eval()
+        self.finetuned_enabled = bool(finetuned_enabled)
+        self.finetuned_model_path = str(finetuned_model_path or "").strip()
+        self.finetuned_learning_rate = float(max(1e-6, min(1e-3, finetuned_learning_rate)))
+        self.finetuned_epochs = int(max(1, min(12, finetuned_epochs)))
+        self.finetuned_batch_size = int(max(4, min(64, finetuned_batch_size)))
+        self.finetuned_max_length = int(max(64, min(512, finetuned_max_length)))
+        self.finetuned_weight_decay = float(max(0.0, min(0.2, finetuned_weight_decay)))
 
-        self._intent_cache_key: Optional[Tuple[str, ...]] = None
-        self._intent_mat: Optional[torch.Tensor] = None
-        self._intent_ids: List[str] = []
-
-        self.tuned_model_path = tuned_model_path
+        self.tuned_model_path = str(tuned_model_path or "").strip()
         self._state_lock = RLock()
         self._tuned_artifact: Optional[Dict[str, Any]] = None
-        self._tuned_head: Optional[nn.Linear] = None
         self._finetuned_model: Optional[AutoModelForSequenceClassification] = None
         self._finetuned_tokenizer: Optional[Any] = None
-        self._dialog_head: Optional[DialogTransformerHead] = None
-        self._active_head_intents: Optional[Tuple[str, ...]] = None
         self._active_finetuned_intents: Optional[Tuple[str, ...]] = None
         self._active_finetuned_path: str = ""
-        self._active_dialog_intents: Optional[Tuple[str, ...]] = None
         self._last_train_report: Optional[Dict[str, Any]] = None
         self._last_train_error: str = ""
 
         self._load_tuned_artifact_from_disk()
 
     def analyze(self, call: CallInput, allowed_intents: Dict[str, Dict], groups: Optional[Dict[str, Dict]] = None) -> AIAnalysis:
-        start_time = time.time()
-
+        started = time.time()
         prep = build_canonical([(s.start, s.text, s.role) for s in call.segments], self.preprocess_cfg)
         text = self._extract_text_with_context(prep.canonical_text, self.max_text_chars)
         intent_ids = sorted(allowed_intents.keys())
-        finetuned_probs, finetuned_meta = self._predict_with_finetuned_model(text, intent_ids)
-        confidence_source = "finetuned_primary"
 
-        if finetuned_probs is None:
-            logger.warning("Fine-tuned model unavailable for call %s, routing to triage", call.call_id)
-            processing_time_ms = (time.time() - start_time) * 1000
-            intent = IntentResult(
-                intent_id="misc.triage",
-                confidence=0.0,
-                evidence=[],
-                notes="finetuned model unavailable -> triage",
-            )
-            return AIAnalysis(
-                intent=intent,
-                priority="medium",
-                suggested_targets=[{"type": "group", "id": "technical_support", "confidence": 0.0}],
-                raw={
-                    "mode": "finetuned_only",
-                    "model_version": self.model_name,
-                    "device": self.device,
-                    "processing_time_ms": round(processing_time_ms, 2),
-                    "finetuned_model": finetuned_meta,
-                    "text_length": len(text),
-                },
+        probs, meta = self._predict_with_finetuned_model(text, intent_ids)
+        if probs is None:
+            return self._triage_result(
+                call_id=call.call_id,
+                reason=f"finetuned_unavailable:{meta.get('reason', 'unknown')}",
+                processing_time_ms=(time.time() - started) * 1000.0,
+                text_len=len(text),
+                prep_meta=prep.meta,
+                model_meta=meta,
             )
 
-        final_probs = finetuned_probs
-
-        top3_indices = torch.topk(final_probs, k=min(3, len(intent_ids)))[1]
-        top3_intents = [
-            {
-                "intent": intent_ids[int(i)],
-                "score": float(final_probs[i].item()),
-            }
-            for i in top3_indices
-        ]
-
-        best_idx = int(torch.argmax(final_probs).item())
+        best_idx = int(torch.argmax(probs).item())
         best_intent_id = intent_ids[best_idx]
-        conf = float(final_probs[best_idx].item())
+        confidence = float(probs[best_idx].item())
 
-        if conf < self.min_confidence:
-            logger.warning("Low confidence %.3f for call %s, routing to triage", conf, call.call_id)
-            best_intent_id = "misc.triage"
-            priority: Priority = "medium"
-            notes = f"{confidence_source} confidence={conf:.3f} (confidence_too_low -> triage)"
-        else:
-            meta = allowed_intents.get(best_intent_id, {})
-            priority = meta.get("priority", "normal")
-            if priority == "normal":
-                priority = "medium"
-            notes = f"{confidence_source} confidence={conf:.3f}"
-            if finetuned_probs is not None and finetuned_meta.get("trained_at"):
-                notes += f"; finetuned_trained_at={finetuned_meta['trained_at']}"
-        evidence: List[Evidence] = []
+        if confidence < self.min_confidence:
+            return self._triage_result(
+                call_id=call.call_id,
+                reason=f"low_confidence:{confidence:.3f}",
+                processing_time_ms=(time.time() - started) * 1000.0,
+                text_len=len(text),
+                prep_meta=prep.meta,
+                model_meta=meta,
+            )
 
-        suggested_targets = []
-        meta = allowed_intents.get(best_intent_id, {})
-        gid = meta.get("default_group")
-        if gid:
-            suggested_targets.append({"type": "group", "id": gid, "confidence": conf})
+        meta_intent = allowed_intents.get(best_intent_id, {})
+        priority = self._normalize_priority(meta_intent.get("priority", "medium"))
+        default_group = str(meta_intent.get("default_group") or "").strip()
+        targets = [{"type": "group", "id": default_group, "confidence": confidence}] if default_group else []
 
-        processing_time_ms = (time.time() - start_time) * 1000
+        top_k = min(3, len(intent_ids))
+        top_indices = torch.topk(probs, k=top_k).indices.tolist()
+        top3_intents = [{"intent": intent_ids[int(i)], "score": float(probs[int(i)].item())} for i in top_indices]
 
-        logger.info(
-            "Intent classified",
-            extra={
-                "call_id": call.call_id,
-                "intent": best_intent_id,
-                "confidence": round(conf, 3),
-                "text_length": len(text),
-                "processing_time_ms": round(processing_time_ms, 2),
-                "confidence_source": confidence_source,
-            },
-        )
-
-        intent = IntentResult(intent_id=best_intent_id, confidence=conf, evidence=evidence, notes=notes)
-
-        return AIAnalysis(
-            intent=intent,
+        analysis = AIAnalysis(
+            intent=IntentResult(
+                intent_id=best_intent_id,
+                confidence=confidence,
+                evidence=[],
+                notes=f"finetuned confidence={confidence:.3f}",
+            ),
             priority=priority,
-            suggested_targets=suggested_targets,
+            suggested_targets=targets,
             raw={
                 "mode": "finetuned_only",
                 "model_version": self.model_name,
                 "device": self.device,
-                "processing_time_ms": round(processing_time_ms, 2),
-                "top3_intents": top3_intents,
-                "prep_meta": prep.meta,
+                "processing_time_ms": round((time.time() - started) * 1000.0, 2),
                 "text_length": len(text),
-                "confidence_source": confidence_source,
-                "finetuned_model": finetuned_meta,
+                "prep_meta": prep.meta,
+                "top3_intents": top3_intents,
+                "finetuned_model": meta,
             },
         )
+        logger.info(
+            "Intent classified (finetuned-only) call_id=%s intent=%s conf=%.3f",
+            call.call_id,
+            best_intent_id,
+            confidence,
+        )
+        return analysis
 
     def get_training_status(self, allowed_intents: Optional[Dict[str, Dict]] = None) -> Dict[str, Any]:
         with self._state_lock:
             artifact = dict(self._tuned_artifact or {})
             report = dict(self._last_train_report or {})
-            last_error = self._last_train_error
+            last_error = str(self._last_train_error or "")
 
         if not artifact:
             return {
@@ -257,7 +168,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 "finetuned_model": {
                     "enabled": self.finetuned_enabled,
                     "active": False,
-                    "blend_alpha": self.finetuned_blend_alpha,
                     "model_path": self.finetuned_model_path,
                 },
                 "last_train_report": report,
@@ -268,38 +178,24 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         current_intents = sorted(allowed_intents.keys()) if allowed_intents else None
         compatible = current_intents is None or artifact_intents == current_intents
 
-        dialog_head = artifact.get("dialog_head") if isinstance(artifact.get("dialog_head"), dict) else {}
         finetuned_model = artifact.get("finetuned_model") if isinstance(artifact.get("finetuned_model"), dict) else {}
         finetuned_ready = bool(finetuned_model and finetuned_model.get("enabled"))
         active = compatible and finetuned_ready
         reason = "ok" if active else ("intents_mismatch" if not compatible else "no_finetuned_model")
+
         return {
             "active": active,
             "reason": reason,
             "model_path": self.tuned_model_path,
             "version_id": artifact.get("version_id", ""),
             "trained_at": artifact.get("trained_at", ""),
-            "blend_alpha": self.tuned_blend_alpha,
             "intent_ids": artifact_intents,
             "current_intents": current_intents,
             "metrics": artifact.get("metrics", {}),
             "dataset": artifact.get("dataset", {}),
-            "linear_head": {
-                "active": False,
-                "blend_alpha": 0.0,
-                "metrics": {},
-            },
-            "dialog_head": {
-                "enabled": False,
-                "active": False,
-                "blend_alpha": 0.0,
-                "max_turns": self.dialog_max_turns,
-                "metrics": dialog_head.get("metrics", {}) if isinstance(dialog_head, dict) else {},
-            },
             "finetuned_model": {
                 "enabled": self.finetuned_enabled,
                 "active": active,
-                "blend_alpha": 1.0,
                 "model_path": finetuned_model.get("model_path", self.finetuned_model_path),
                 "metrics": finetuned_model.get("metrics", {}),
             },
@@ -313,194 +209,122 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         *,
         feedback_path: str,
         output_path: str,
-        epochs: int = 90,
-        batch_size: int = 32,
-        learning_rate: float = 1e-2,
+        epochs: int = 3,
+        batch_size: int = 16,
+        learning_rate: float = 2e-5,
         val_ratio: float = 0.2,
         random_seed: int = 42,
     ) -> Dict[str, Any]:
         started = time.time()
         self._set_last_train_error("")
+        if not self.finetuned_enabled:
+            raise RuntimeError("fine-tuning is disabled (set ROUTER_FINETUNED_ENABLED=1)")
 
-        try:
-            if not self.finetuned_enabled:
-                raise RuntimeError("fine-tuning is disabled (set ROUTER_FINETUNED_ENABLED=1)")
+        samples, dataset_meta = self._collect_training_samples(allowed_intents, feedback_path)
+        if not samples:
+            raise RuntimeError("no training samples after preprocessing")
 
-            samples, dataset_meta = self._collect_training_samples(allowed_intents, feedback_path)
-            if not samples:
-                raise RuntimeError("no training samples after preprocessing")
+        intent_ids = sorted(allowed_intents.keys())
+        label_to_idx = {iid: i for i, iid in enumerate(intent_ids)}
+        filtered: List[Dict[str, Any]] = []
+        for sample in samples:
+            intent_id = str(sample.get("intent_id") or "").strip()
+            idx = label_to_idx.get(intent_id)
+            if idx is None:
+                continue
+            item = dict(sample)
+            item["label_idx"] = int(idx)
+            filtered.append(item)
 
-            intent_ids = sorted(allowed_intents.keys())
-            label_to_idx = {iid: i for i, iid in enumerate(intent_ids)}
-
-            filtered_samples: List[Dict[str, Any]] = []
-            for sample in samples:
-                intent_id = str(sample.get("intent_id") or "").strip()
-                idx = label_to_idx.get(intent_id)
-                if idx is None:
-                    continue
-                item = dict(sample)
-                item["label_idx"] = int(idx)
-                filtered_samples.append(item)
-
-            if len(filtered_samples) < max(30, len(intent_ids) * 3):
-                raise RuntimeError(
-                    f"insufficient labeled data for training: {len(filtered_samples)} samples for {len(intent_ids)} intents"
-                )
-
-            texts = [str(row.get("text") or "") for row in filtered_samples]
-            labels = [int(row.get("label_idx")) for row in filtered_samples]
-
-            train_idx, val_idx = self._stratified_split(labels, val_ratio=val_ratio, random_seed=random_seed)
-            if not train_idx:
-                raise RuntimeError("stratified split produced empty train set")
-            finetuned_report, finetuned_artifact = self._train_finetuned_rubert(
-                texts=texts,
-                labels=labels,
-                intent_ids=intent_ids,
-                train_idx=train_idx,
-                val_idx=val_idx,
-                random_seed=random_seed,
+        if len(filtered) < max(30, len(intent_ids) * 3):
+            raise RuntimeError(
+                f"insufficient labeled data for training: {len(filtered)} samples for {len(intent_ids)} intents"
             )
 
-            trained_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            version_id = f"tuned-{int(time.time())}"
-            artifact = {
-                "artifact_version": 3,
-                "version_id": version_id,
-                "trained_at": trained_at,
-                "model_name": self.model_name,
-                "intent_ids": intent_ids,
-                "metrics": finetuned_report.get("metrics", {}),
-                "dataset": {
-                    **dataset_meta,
-                    "samples_total": len(filtered_samples),
-                    "samples_train": len(train_idx),
-                    "samples_val": len(val_idx),
-                },
-                "dialog_head": {"enabled": False},
-                "linear_head": {"enabled": False},
-                "finetuned_model": finetuned_artifact,
-            }
+        texts = [str(row.get("text") or "") for row in filtered]
+        labels = [int(row.get("label_idx")) for row in filtered]
+        train_idx, val_idx = self._stratified_split(labels, val_ratio=float(val_ratio), random_seed=int(random_seed))
+        if not train_idx:
+            raise RuntimeError("stratified split produced empty train set")
 
-            self._save_tuned_artifact(output_path, artifact)
-            self._activate_tuned_artifact(artifact)
+        report_finetuned, artifact_finetuned = self._train_finetuned_rubert(
+            texts=texts,
+            labels=labels,
+            intent_ids=intent_ids,
+            train_idx=train_idx,
+            val_idx=val_idx,
+            random_seed=int(random_seed),
+            epochs=int(epochs),
+            batch_size=int(batch_size),
+            learning_rate=float(learning_rate),
+        )
 
-            report = {
-                "ok": True,
-                "version_id": version_id,
-                "trained_at": trained_at,
-                "duration_sec": round(time.time() - started, 2),
-                "output_path": output_path,
-                "metrics": artifact["metrics"],
-                "dataset": artifact["dataset"],
-                "finetuned_model": finetuned_report,
-            }
-            self._set_last_train_report(report)
-            return report
+        trained_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        version_id = f"tuned-{int(time.time())}"
+        artifact = {
+            "artifact_version": 4,
+            "version_id": version_id,
+            "trained_at": trained_at,
+            "model_name": self.model_name,
+            "intent_ids": intent_ids,
+            "metrics": report_finetuned.get("metrics", {}),
+            "dataset": {
+                **dataset_meta,
+                "samples_total": len(filtered),
+                "samples_train": len(train_idx),
+                "samples_val": len(val_idx),
+            },
+            "finetuned_model": artifact_finetuned,
+        }
+        self._save_tuned_artifact(output_path, artifact)
+        self._activate_tuned_artifact(artifact)
 
-        except Exception as exc:
-            self._set_last_train_error(str(exc))
-            raise
+        report = {
+            "ok": True,
+            "version_id": version_id,
+            "trained_at": trained_at,
+            "duration_sec": round(time.time() - started, 2),
+            "output_path": output_path,
+            "metrics": artifact["metrics"],
+            "dataset": artifact["dataset"],
+            "finetuned_model": report_finetuned,
+        }
+        self._set_last_train_report(report)
+        return report
 
     def reload_tuned_head_from_disk(self) -> Dict[str, Any]:
         self._load_tuned_artifact_from_disk()
         return self.get_training_status()
 
-    def _clear_tuned_artifact(self) -> None:
-        with self._state_lock:
-            self._tuned_artifact = None
-            self._tuned_head = None
-            self._finetuned_model = None
-            self._finetuned_tokenizer = None
-            self._dialog_head = None
-            self._active_head_intents = None
-            self._active_finetuned_intents = None
-            self._active_finetuned_path = ""
-            self._active_dialog_intents = None
-
-    def _load_tuned_artifact_from_disk(self) -> None:
-        if not self.tuned_model_path:
-            self._clear_tuned_artifact()
-            return
-        model_path = Path(self.tuned_model_path)
-        if not model_path.exists():
-            self._clear_tuned_artifact()
-            logger.info("No tuned routing head found at %s. Active tuned state cleared.", model_path)
-            return
-
-        try:
-            payload = torch.load(model_path, map_location="cpu")
-            if not isinstance(payload, dict):
-                raise RuntimeError("tuned model payload is not a dict")
-            self._activate_tuned_artifact(payload)
-            logger.info("Loaded tuned routing head: %s", model_path)
-        except Exception as exc:
-            self._clear_tuned_artifact()
-            logger.warning("Failed to load tuned routing head from %s: %s", model_path, exc)
-
-    def _activate_tuned_artifact(self, artifact: Dict[str, Any]) -> None:
-        with self._state_lock:
-            self._tuned_artifact = dict(artifact)
-            self._tuned_head = None
-            self._finetuned_model = None
-            self._finetuned_tokenizer = None
-            self._dialog_head = None
-            self._active_head_intents = None
-            self._active_finetuned_intents = None
-            self._active_finetuned_path = ""
-            self._active_dialog_intents = None
-
-    def _set_last_train_report(self, report: Dict[str, Any]) -> None:
-        with self._state_lock:
-            self._last_train_report = dict(report)
-            self._last_train_error = ""
-
-    def _set_last_train_error(self, error: str) -> None:
-        with self._state_lock:
-            self._last_train_error = error
-
-    def _predict_with_tuned_head(
+    def _triage_result(
         self,
-        q: torch.Tensor,
-        intent_ids: List[str],
-    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
-        with self._state_lock:
-            artifact = dict(self._tuned_artifact or {})
-
-        if not artifact:
-            return None, {"active": False, "reason": "no_tuned_model"}
-
-        artifact_model_name = str(artifact.get("model_name") or "")
-        if artifact_model_name != self.model_name:
-            return None, {
-                "active": False,
-                "reason": "model_name_mismatch",
-                "artifact_model_name": artifact_model_name,
-            }
-
-        artifact_intents = list(artifact.get("intent_ids") or [])
-        if artifact_intents != intent_ids:
-            return None, {
-                "active": False,
-                "reason": "intents_mismatch",
-                "artifact_intents_n": len(artifact_intents),
-                "runtime_intents_n": len(intent_ids),
-            }
-
-        try:
-            head = self._ensure_tuned_head_loaded(artifact, intent_ids)
-            with torch.inference_mode():
-                logits = head(q)
-                probs = torch.softmax(logits, dim=1).squeeze(0)
-            return probs, {
-                "active": True,
-                "version_id": artifact.get("version_id", ""),
-                "trained_at": artifact.get("trained_at", ""),
-            }
-        except Exception as exc:
-            logger.warning("Failed to run tuned routing head: %s", exc)
-            return None, {"active": False, "reason": f"runtime_error:{exc}"}
+        *,
+        call_id: str,
+        reason: str,
+        processing_time_ms: float,
+        text_len: int,
+        prep_meta: Dict[str, Any],
+        model_meta: Dict[str, Any],
+    ) -> AIAnalysis:
+        return AIAnalysis(
+            intent=IntentResult(
+                intent_id="misc.triage",
+                confidence=0.0,
+                evidence=[],
+                notes=reason,
+            ),
+            priority="medium",
+            suggested_targets=[{"type": "group", "id": "technical_support", "confidence": 0.0}],
+            raw={
+                "mode": "finetuned_only",
+                "model_version": self.model_name,
+                "device": self.device,
+                "processing_time_ms": round(processing_time_ms, 2),
+                "text_length": text_len,
+                "prep_meta": prep_meta,
+                "finetuned_model": model_meta,
+            },
+        )
 
     def _predict_with_finetuned_model(
         self,
@@ -512,7 +336,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
 
         with self._state_lock:
             artifact = dict(self._tuned_artifact or {})
-
         if not artifact:
             return None, {"active": False, "reason": "no_tuned_model"}
 
@@ -551,87 +374,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             logger.warning("Failed to run fine-tuned RuBERT head: %s", exc)
             return None, {"active": False, "reason": f"runtime_error:{exc}"}
 
-    def _predict_with_dialog_head(
-        self,
-        call: CallInput,
-        intent_ids: List[str],
-    ) -> Tuple[Optional[torch.Tensor], Dict[str, Any]]:
-        if not self.dialog_head_enabled:
-            return None, {"active": False, "reason": "dialog_head_disabled"}
-
-        with self._state_lock:
-            artifact = dict(self._tuned_artifact or {})
-        if not artifact:
-            return None, {"active": False, "reason": "no_tuned_model"}
-
-        dialog_head_artifact = artifact.get("dialog_head")
-        if not isinstance(dialog_head_artifact, dict) or not dialog_head_artifact.get("enabled"):
-            return None, {"active": False, "reason": "no_dialog_head"}
-
-        artifact_intents = list(artifact.get("intent_ids") or [])
-        if artifact_intents != intent_ids:
-            return None, {
-                "active": False,
-                "reason": "intents_mismatch",
-                "artifact_intents_n": len(artifact_intents),
-                "runtime_intents_n": len(intent_ids),
-            }
-
-        turns = self._segments_to_turns(call.segments)
-        if not turns:
-            return None, {"active": False, "reason": "no_turns"}
-
-        try:
-            model = self._ensure_dialog_head_loaded(artifact, intent_ids)
-            turn_texts = [turn.text for turn in turns]
-            role_ids = [turn.role_id for turn in turns]
-            turn_embeddings = self._embed(turn_texts).detach().cpu()
-
-            seq_x, seq_roles, seq_mask = self._build_dialog_batch(
-                seq_embeddings=[turn_embeddings],
-                seq_role_ids=[role_ids],
-                indices=[0],
-            )
-            with torch.inference_mode():
-                logits = model(
-                    seq_x.to(self.device),
-                    seq_roles.to(self.device),
-                    seq_mask.to(self.device),
-                )
-                probs = torch.softmax(logits, dim=1).squeeze(0)
-            return probs, {
-                "active": True,
-                "version_id": artifact.get("version_id", ""),
-                "trained_at": artifact.get("trained_at", ""),
-                "turns_used": len(turns),
-            }
-        except Exception as exc:
-            logger.warning("Failed to run dialog routing head: %s", exc)
-            return None, {"active": False, "reason": f"runtime_error:{exc}"}
-
-    def _ensure_tuned_head_loaded(self, artifact: Dict[str, Any], intent_ids: List[str]) -> nn.Linear:
-        intent_key = tuple(intent_ids)
-        with self._state_lock:
-            if self._tuned_head is not None and self._active_head_intents == intent_key:
-                return self._tuned_head
-
-            state_dict = artifact.get("state_dict")
-            if not isinstance(state_dict, dict):
-                raise RuntimeError("invalid state_dict in tuned artifact")
-
-            in_features = int(artifact.get("in_features") or 0)
-            if in_features <= 0:
-                raise RuntimeError("invalid in_features in tuned artifact")
-
-            out_features = len(intent_ids)
-            head = nn.Linear(in_features, out_features).to(self.device)
-            head.load_state_dict(state_dict)
-            head.eval()
-
-            self._tuned_head = head
-            self._active_head_intents = intent_key
-            return head
-
     def _ensure_finetuned_model_loaded(
         self,
         artifact: Dict[str, Any],
@@ -658,7 +400,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             model = AutoModelForSequenceClassification.from_pretrained(model_path).to(self.device)
             model.eval()
             tokenizer = AutoTokenizer.from_pretrained(model_path)
-
             if int(model.config.num_labels) != len(intent_ids):
                 raise RuntimeError(
                     f"finetuned model classes mismatch: model={int(model.config.num_labels)} runtime={len(intent_ids)}"
@@ -670,51 +411,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             self._active_finetuned_path = model_path
             max_len = int(finetuned_artifact.get("max_length") or self.finetuned_max_length)
             return model, tokenizer, max_len
-
-    def _ensure_dialog_head_loaded(self, artifact: Dict[str, Any], intent_ids: List[str]) -> DialogTransformerHead:
-        intent_key = tuple(intent_ids)
-        with self._state_lock:
-            if self._dialog_head is not None and self._active_dialog_intents == intent_key:
-                return self._dialog_head
-
-            dialog_artifact = artifact.get("dialog_head")
-            if not isinstance(dialog_artifact, dict) or not dialog_artifact.get("enabled"):
-                raise RuntimeError("dialog head artifact is not available")
-            state_dict = dialog_artifact.get("state_dict")
-            if not isinstance(state_dict, dict):
-                raise RuntimeError("invalid dialog state_dict")
-
-            in_features = int(dialog_artifact.get("in_features") or 0)
-            if in_features <= 0:
-                raise RuntimeError("invalid dialog in_features")
-            d_model = int(dialog_artifact.get("d_model") or self.dialog_d_model)
-            nhead = int(dialog_artifact.get("nhead") or self.dialog_nhead)
-            num_layers = int(dialog_artifact.get("num_layers") or self.dialog_layers)
-            dropout = float(dialog_artifact.get("dropout") or self.dialog_dropout)
-            max_turns = int(dialog_artifact.get("max_turns") or self.dialog_max_turns)
-
-            model = DialogTransformerHead(
-                in_features=in_features,
-                num_classes=len(intent_ids),
-                d_model=d_model,
-                nhead=nhead,
-                num_layers=num_layers,
-                dropout=dropout,
-                max_turns=max_turns,
-            ).to(self.device)
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            self._dialog_head = model
-            self._active_dialog_intents = intent_key
-            return model
-
-    def _save_tuned_artifact(self, output_path: str, artifact: Dict[str, Any]) -> None:
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        torch.save(artifact, tmp_path)
-        os.replace(tmp_path, path)
 
     def _collect_training_samples(
         self,
@@ -738,14 +434,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                 if key in seen:
                     continue
                 seen.add(key)
-                rows.append(
-                    {
-                        "text": text,
-                        "intent_id": intent_id,
-                        "source": "intent_examples",
-                        "turns": [DialogTurn(role_id=ROLE_UNKNOWN, text=text)],
-                    }
-                )
+                rows.append({"text": text, "intent_id": intent_id, "source": "intent_examples"})
                 source_counts["intent_examples"] += 1
                 class_counts[intent_id] += 1
 
@@ -766,31 +455,17 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
                     continue
 
                 text = str(item.get("training_sample") or "").strip()
-                transcript_text = str(item.get("transcript_text") or "").strip()
                 if not text:
-                    text = transcript_text
-
+                    text = str(item.get("transcript_text") or "").strip()
                 text = self._prepare_training_text(text)
                 if not text:
                     continue
-
-                turns = self._feedback_item_to_turns(item, fallback_text=transcript_text or text)
-                if not turns:
-                    turns = [DialogTurn(role_id=ROLE_UNKNOWN, text=text)]
 
                 key = (intent_id, text.lower())
                 if key in seen:
                     continue
                 seen.add(key)
-
-                rows.append(
-                    {
-                        "text": text,
-                        "intent_id": intent_id,
-                        "source": "operator_feedback",
-                        "turns": turns,
-                    }
-                )
+                rows.append({"text": text, "intent_id": intent_id, "source": "operator_feedback"})
                 source_counts["operator_feedback"] += 1
                 class_counts[intent_id] += 1
 
@@ -811,343 +486,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             cleaned = self._extract_text_with_context(cleaned, self.max_text_chars)
         return cleaned
 
-    def _prepare_turn_text(self, text: str) -> str:
-        cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
-        if not cleaned:
-            return ""
-        if len(cleaned) > self.dialog_max_turn_chars:
-            cleaned = cleaned[: self.dialog_max_turn_chars].strip()
-        return cleaned
-
-    def _role_to_id(self, role: Optional[str], speaker: Optional[str] = None) -> int:
-        role_l = str(role or "").strip().lower()
-        speaker_l = str(speaker or "").strip().lower()
-        if not role_l and speaker_l.startswith("system"):
-            return ROLE_SYSTEM
-        if any(tag in role_l for tag in ("звонящ", "caller", "client", "customer")):
-            return ROLE_CALLER
-        if any(tag in role_l for tag in ("ответ", "agent", "operator", "support", "менедж")):
-            return ROLE_AGENT
-        if any(tag in role_l for tag in ("ivr", "bot", "system")):
-            return ROLE_SYSTEM
-        return ROLE_UNKNOWN
-
-    def _crop_turns(self, turns: List[DialogTurn]) -> List[DialogTurn]:
-        if len(turns) <= self.dialog_max_turns:
-            return turns
-        keep_head = int(self.dialog_max_turns * 0.65)
-        keep_tail = self.dialog_max_turns - keep_head
-        return turns[:keep_head] + turns[-keep_tail:]
-
-    def _segments_to_turns(self, segments: List[Any]) -> List[DialogTurn]:
-        turns: List[DialogTurn] = []
-        for seg in segments:
-            text = self._prepare_turn_text(getattr(seg, "text", ""))
-            if not text:
-                continue
-            turns.append(
-                DialogTurn(
-                    role_id=self._role_to_id(getattr(seg, "role", None), getattr(seg, "speaker", None)),
-                    text=text,
-                )
-            )
-        return self._crop_turns(turns)
-
-    def _feedback_item_to_turns(self, item: Dict[str, Any], fallback_text: str = "") -> List[DialogTurn]:
-        turns: List[DialogTurn] = []
-        raw_segments = item.get("transcript_segments")
-        if isinstance(raw_segments, list):
-            def _safe_float(value: Any) -> float:
-                try:
-                    return float(value or 0.0)
-                except Exception:
-                    return 0.0
-
-            ordered = sorted(
-                [seg for seg in raw_segments if isinstance(seg, dict)],
-                key=lambda seg: _safe_float(seg.get("start", 0.0)),
-            )
-            for seg in ordered:
-                text = self._prepare_turn_text(seg.get("text", ""))
-                if not text:
-                    continue
-                turns.append(
-                    DialogTurn(
-                        role_id=self._role_to_id(seg.get("role"), seg.get("speaker")),
-                        text=text,
-                    )
-                )
-
-        if turns:
-            return self._crop_turns(turns)
-
-        fallback_clean = self._prepare_turn_text(fallback_text)
-        if fallback_clean:
-            return [DialogTurn(role_id=ROLE_UNKNOWN, text=fallback_clean)]
-        return []
-
-    def _build_dialog_batch(
-        self,
-        *,
-        seq_embeddings: List[torch.Tensor],
-        seq_role_ids: List[List[int]],
-        indices: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        if not indices:
-            raise RuntimeError("empty dialog batch indices")
-        in_features = int(seq_embeddings[indices[0]].shape[1])
-        max_len = min(
-            self.dialog_max_turns,
-            max(int(seq_embeddings[idx].shape[0]) for idx in indices),
-        )
-        batch = len(indices)
-
-        x = torch.zeros((batch, max_len, in_features), dtype=torch.float32)
-        roles = torch.zeros((batch, max_len), dtype=torch.long)
-        mask = torch.ones((batch, max_len), dtype=torch.bool)
-
-        for b, idx in enumerate(indices):
-            seq = seq_embeddings[idx]
-            rids = seq_role_ids[idx]
-            take = min(max_len, int(seq.shape[0]), len(rids))
-            if take <= 0:
-                continue
-            x[b, :take, :] = seq[:take, :]
-            roles[b, :take] = torch.tensor(rids[:take], dtype=torch.long)
-            mask[b, :take] = False
-        return x, roles, mask
-
-    def _evaluate_dialog(
-        self,
-        *,
-        model: DialogTransformerHead,
-        seq_embeddings: List[torch.Tensor],
-        seq_role_ids: List[List[int]],
-        labels: torch.Tensor,
-        indices: List[int],
-        batch_size: int,
-        criterion: nn.Module,
-    ) -> Dict[str, float]:
-        if not indices:
-            return {
-                "loss": 0.0,
-                "accuracy": 0.0,
-                "macro_precision": 0.0,
-                "macro_recall": 0.0,
-                "macro_f1": 0.0,
-            }
-
-        model.eval()
-        losses: List[float] = []
-        preds: List[torch.Tensor] = []
-        targets: List[torch.Tensor] = []
-        with torch.inference_mode():
-            for i in range(0, len(indices), batch_size):
-                batch_idx = indices[i : i + batch_size]
-                xb, rb, mb = self._build_dialog_batch(
-                    seq_embeddings=seq_embeddings,
-                    seq_role_ids=seq_role_ids,
-                    indices=batch_idx,
-                )
-                yb = labels[batch_idx].to(self.device)
-                logits = model(xb.to(self.device), rb.to(self.device), mb.to(self.device))
-                loss = criterion(logits, yb)
-                losses.append(float(loss.item()))
-                preds.append(torch.argmax(logits, dim=1).detach().cpu())
-                targets.append(labels[batch_idx].detach().cpu())
-
-        pred = torch.cat(preds, dim=0)
-        target = torch.cat(targets, dim=0)
-        acc = float((pred == target).float().mean().item()) if target.numel() > 0 else 0.0
-        macro_precision, macro_recall, macro_f1 = self._macro_precision_recall_f1(pred, target)
-        return {
-            "loss": round(sum(losses) / max(1, len(losses)), 6),
-            "accuracy": round(acc, 6),
-            "macro_precision": round(macro_precision, 6),
-            "macro_recall": round(macro_recall, 6),
-            "macro_f1": round(macro_f1, 6),
-        }
-
-    def _train_dialog_transformer(
-        self,
-        *,
-        samples: List[Dict[str, Any]],
-        intent_ids: List[str],
-        epochs: int,
-        batch_size: int,
-        learning_rate: float,
-        val_ratio: float,
-        random_seed: int,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        seq_embeddings: List[torch.Tensor] = []
-        seq_role_ids: List[List[int]] = []
-        labels: List[int] = []
-        turns_count: List[int] = []
-
-        for sample in samples:
-            turns = sample.get("turns") or []
-            if not isinstance(turns, list):
-                turns = []
-            dialog_turns: List[DialogTurn] = []
-            for turn in turns:
-                if isinstance(turn, DialogTurn):
-                    dialog_turns.append(turn)
-                elif isinstance(turn, dict):
-                    text = self._prepare_turn_text(turn.get("text", ""))
-                    if not text:
-                        continue
-                    dialog_turns.append(
-                        DialogTurn(
-                            role_id=int(turn.get("role_id") or ROLE_UNKNOWN),
-                            text=text,
-                        )
-                    )
-
-            if not dialog_turns:
-                fallback_text = self._prepare_turn_text(sample.get("text", ""))
-                if not fallback_text:
-                    continue
-                dialog_turns = [DialogTurn(role_id=ROLE_UNKNOWN, text=fallback_text)]
-
-            dialog_turns = self._crop_turns(dialog_turns)
-            turn_texts = [turn.text for turn in dialog_turns]
-            role_ids = [int(max(0, min(ROLE_VOCAB_SIZE - 1, turn.role_id))) for turn in dialog_turns]
-            turn_emb = self._embed(turn_texts).detach().cpu()
-            seq_embeddings.append(turn_emb)
-            seq_role_ids.append(role_ids)
-            labels.append(int(sample.get("label_idx")))
-            turns_count.append(len(dialog_turns))
-
-        if len(seq_embeddings) < max(24, len(intent_ids) * 3):
-            raise RuntimeError(
-                f"insufficient dialog samples for transformer head: {len(seq_embeddings)}"
-            )
-
-        label_tensor = torch.tensor(labels, dtype=torch.long)
-        train_idx, val_idx = self._stratified_split(labels, val_ratio=val_ratio, random_seed=random_seed)
-        if not train_idx:
-            raise RuntimeError("stratified split produced empty train set for dialog head")
-        if not val_idx:
-            val_idx = list(train_idx)
-
-        in_features = int(seq_embeddings[0].shape[1])
-        model = DialogTransformerHead(
-            in_features=in_features,
-            num_classes=len(intent_ids),
-            d_model=self.dialog_d_model,
-            nhead=self.dialog_nhead,
-            num_layers=self.dialog_layers,
-            dropout=self.dialog_dropout,
-            max_turns=self.dialog_max_turns,
-        ).to(self.device)
-
-        class_weights = self._build_class_weights(label_tensor[train_idx], len(intent_ids)).to(self.device)
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=float(learning_rate), weight_decay=0.01)
-
-        epochs = int(max(10, min(400, epochs)))
-        batch_size = int(max(8, min(128, batch_size)))
-        best_state = None
-        best_val_f1 = -1.0
-        best_epoch = 0
-        patience = 20
-        no_improve = 0
-
-        torch.manual_seed(int(random_seed))
-        random.seed(int(random_seed))
-
-        for epoch in range(1, epochs + 1):
-            model.train()
-            shuffled = list(train_idx)
-            random.shuffle(shuffled)
-            for i in range(0, len(shuffled), batch_size):
-                batch_idx = shuffled[i : i + batch_size]
-                xb, rb, mb = self._build_dialog_batch(
-                    seq_embeddings=seq_embeddings,
-                    seq_role_ids=seq_role_ids,
-                    indices=batch_idx,
-                )
-                yb = label_tensor[batch_idx].to(self.device)
-
-                optimizer.zero_grad(set_to_none=True)
-                logits = model(xb.to(self.device), rb.to(self.device), mb.to(self.device))
-                loss = criterion(logits, yb)
-                loss.backward()
-                optimizer.step()
-
-            val_metrics = self._evaluate_dialog(
-                model=model,
-                seq_embeddings=seq_embeddings,
-                seq_role_ids=seq_role_ids,
-                labels=label_tensor,
-                indices=val_idx,
-                batch_size=batch_size,
-                criterion=criterion,
-            )
-            val_f1 = float(val_metrics["macro_f1"])
-            if val_f1 > best_val_f1 + 1e-6:
-                best_val_f1 = val_f1
-                best_epoch = epoch
-                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-                no_improve = 0
-            else:
-                no_improve += 1
-            if no_improve >= patience:
-                break
-
-        if best_state is None:
-            raise RuntimeError("dialog transformer training failed: no best checkpoint")
-
-        model.load_state_dict(best_state)
-        train_metrics = self._evaluate_dialog(
-            model=model,
-            seq_embeddings=seq_embeddings,
-            seq_role_ids=seq_role_ids,
-            labels=label_tensor,
-            indices=train_idx,
-            batch_size=batch_size,
-            criterion=criterion,
-        )
-        val_metrics = self._evaluate_dialog(
-            model=model,
-            seq_embeddings=seq_embeddings,
-            seq_role_ids=seq_role_ids,
-            labels=label_tensor,
-            indices=val_idx,
-            batch_size=batch_size,
-            criterion=criterion,
-        )
-
-        report = {
-            "enabled": True,
-            "best_epoch": best_epoch,
-            "metrics": {
-                "train": train_metrics,
-                "val": val_metrics,
-                "epochs_requested": epochs,
-            },
-            "dataset": {
-                "samples_total": len(seq_embeddings),
-                "samples_train": len(train_idx),
-                "samples_val": len(val_idx),
-                "turns_avg": round(sum(turns_count) / max(1, len(turns_count)), 2),
-                "turns_max": max(turns_count) if turns_count else 0,
-            },
-        }
-        artifact = {
-            "enabled": True,
-            "in_features": in_features,
-            "d_model": self.dialog_d_model,
-            "nhead": self.dialog_nhead,
-            "num_layers": self.dialog_layers,
-            "dropout": self.dialog_dropout,
-            "max_turns": self.dialog_max_turns,
-            "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-            "metrics": report["metrics"],
-            "dataset": report["dataset"],
-        }
-        return report, artifact
-
     def _train_finetuned_rubert(
         self,
         *,
@@ -1157,11 +495,13 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         train_idx: List[int],
         val_idx: List[int],
         random_seed: int,
+        epochs: int,
+        batch_size: int,
+        learning_rate: float,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         model_path = str(self.finetuned_model_path or "").strip()
         if not model_path:
             raise RuntimeError("ROUTER_FINETUNED_MODEL_PATH is empty")
-
         if not train_idx:
             raise RuntimeError("empty train set for fine-tuned model")
         if not val_idx:
@@ -1191,7 +531,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         train_ds = TensorDataset(train_enc["input_ids"], train_enc["attention_mask"], train_labels)
         val_ds = TensorDataset(val_enc["input_ids"], val_enc["attention_mask"], val_labels)
 
-        batch_size = int(max(4, min(64, self.finetuned_batch_size)))
+        batch_size = int(max(4, min(64, batch_size)))
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
@@ -1201,7 +541,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         ).to(self.device)
         optimizer = torch.optim.AdamW(
             model.parameters(),
-            lr=float(self.finetuned_learning_rate),
+            lr=float(max(1e-6, min(1e-3, learning_rate))),
             weight_decay=float(self.finetuned_weight_decay),
         )
         class_weights = self._build_class_weights(train_labels, len(intent_ids)).to(self.device)
@@ -1215,8 +555,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         best_epoch = 0
         patience = 2
         no_improve = 0
+        epochs = int(max(1, min(12, epochs)))
 
-        epochs = int(max(1, min(12, self.finetuned_epochs)))
         for epoch in range(1, epochs + 1):
             model.train()
             for input_ids, attention_mask, yb in train_loader:
@@ -1262,7 +602,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             "trained_at": trained_at,
             "max_length": self.finetuned_max_length,
             "epochs": epochs,
-            "learning_rate": self.finetuned_learning_rate,
+            "learning_rate": learning_rate,
             "batch_size": batch_size,
         }
         (save_dir / "intent_ids.json").write_text(
@@ -1329,12 +669,56 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             "macro_f1": round(macro_f1, 6),
         }
 
-    def _embed_batched(self, texts: List[str], batch_size: int = 64) -> torch.Tensor:
-        chunks: List[torch.Tensor] = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            chunks.append(self._embed(batch).detach().cpu())
-        return torch.cat(chunks, dim=0)
+    def _load_tuned_artifact_from_disk(self) -> None:
+        if not self.tuned_model_path:
+            self._clear_tuned_artifact()
+            return
+        path = Path(self.tuned_model_path)
+        if not path.exists():
+            self._clear_tuned_artifact()
+            logger.info("No tuned router artifact found at %s", path)
+            return
+        try:
+            payload = torch.load(path, map_location="cpu")
+            if not isinstance(payload, dict):
+                raise RuntimeError("invalid tuned artifact payload")
+            self._activate_tuned_artifact(payload)
+            logger.info("Loaded tuned router artifact from %s", path)
+        except Exception as exc:
+            self._clear_tuned_artifact()
+            logger.warning("Failed to load tuned router artifact from %s: %s", path, exc)
+
+    def _save_tuned_artifact(self, output_path: str, artifact: Dict[str, Any]) -> None:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        torch.save(artifact, tmp)
+        os.replace(tmp, path)
+
+    def _activate_tuned_artifact(self, artifact: Dict[str, Any]) -> None:
+        with self._state_lock:
+            self._tuned_artifact = dict(artifact)
+            self._finetuned_model = None
+            self._finetuned_tokenizer = None
+            self._active_finetuned_intents = None
+            self._active_finetuned_path = ""
+
+    def _clear_tuned_artifact(self) -> None:
+        with self._state_lock:
+            self._tuned_artifact = None
+            self._finetuned_model = None
+            self._finetuned_tokenizer = None
+            self._active_finetuned_intents = None
+            self._active_finetuned_path = ""
+
+    def _set_last_train_report(self, report: Dict[str, Any]) -> None:
+        with self._state_lock:
+            self._last_train_report = dict(report)
+            self._last_train_error = ""
+
+    def _set_last_train_error(self, error: str) -> None:
+        with self._state_lock:
+            self._last_train_error = str(error or "")
 
     def _stratified_split(self, labels: List[int], val_ratio: float, random_seed: int) -> Tuple[List[int], List[int]]:
         by_class: Dict[int, List[int]] = defaultdict(list)
@@ -1344,7 +728,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         rnd = random.Random(int(random_seed))
         train_idx: List[int] = []
         val_idx: List[int] = []
-
         val_ratio = max(0.0, min(0.5, float(val_ratio)))
 
         for _, indices in by_class.items():
@@ -1352,10 +735,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             if len(indices) <= 1 or val_ratio <= 0.0:
                 train_idx.extend(indices)
                 continue
-
             take_val = max(1, int(len(indices) * val_ratio))
             take_val = min(take_val, len(indices) - 1)
-
             val_idx.extend(indices[:take_val])
             train_idx.extend(indices[take_val:])
 
@@ -1368,40 +749,9 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         inv = 1.0 / counts
         return inv / inv.mean()
 
-    def _evaluate_linear(self, model: nn.Linear, x: torch.Tensor, y: torch.Tensor, batch_size: int = 64) -> Dict[str, float]:
-        model.eval()
-        losses: List[float] = []
-        preds: List[torch.Tensor] = []
-        criterion = nn.CrossEntropyLoss()
-
-        with torch.inference_mode():
-            for i in range(0, x.size(0), batch_size):
-                xb = x[i : i + batch_size].to(self.device)
-                yb = y[i : i + batch_size].to(self.device)
-                logits = model(xb)
-                loss = criterion(logits, yb)
-                losses.append(float(loss.item()))
-                preds.append(torch.argmax(logits, dim=1).detach().cpu())
-
-        pred = torch.cat(preds, dim=0) if preds else torch.empty_like(y)
-        acc = float((pred == y).float().mean().item()) if y.numel() > 0 else 0.0
-        macro_precision, macro_recall, macro_f1 = self._macro_precision_recall_f1(pred, y)
-
-        return {
-            "loss": round(sum(losses) / max(1, len(losses)), 6),
-            "accuracy": round(acc, 6),
-            "macro_precision": round(macro_precision, 6),
-            "macro_recall": round(macro_recall, 6),
-            "macro_f1": round(macro_f1, 6),
-        }
-
-    def _macro_f1(self, pred: torch.Tensor, target: torch.Tensor) -> float:
-        return self._macro_precision_recall_f1(pred, target)[2]
-
     def _macro_precision_recall_f1(self, pred: torch.Tensor, target: torch.Tensor) -> Tuple[float, float, float]:
         if target.numel() == 0:
             return 0.0, 0.0, 0.0
-
         labels = sorted({int(x.item()) for x in target})
         precision_scores: List[float] = []
         recall_scores: List[float] = []
@@ -1412,7 +762,6 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             tp = float((p & t).sum().item())
             fp = float((p & ~t).sum().item())
             fn = float((~p & t).sum().item())
-
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
             precision_scores.append(precision)
@@ -1430,131 +779,14 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
     def _extract_text_with_context(self, text: str, max_chars: int) -> str:
         if len(text) <= max_chars:
             return text
-
         start_chars = int(max_chars * 0.6)
         end_chars = int(max_chars * 0.4)
+        return text[:start_chars] + "\n[...]\n" + text[-end_chars:]
 
-        start_text = text[:start_chars]
-        end_text = text[-end_chars:]
-
-        return start_text + "\n[...]\n" + end_text
-
-    def _calculate_confidence(self, sims: torch.Tensor, best_idx: int) -> float:
-        sorted_sims = torch.sort(sims, descending=True)[0]
-        best = float(sorted_sims[0].item())
-        second = float(sorted_sims[1].item()) if len(sorted_sims) > 1 else 0.0
-
-        margin = best - second
-
-        conf_sim = (best - 0.2) / 0.6
-        conf_margin = min(1.0, margin / 0.3)
-
-        conf = 0.7 * conf_sim + 0.3 * conf_margin
-
-        return max(0.0, min(1.0, conf))
-
-    def _build_intent_matrix(self, allowed_intents: Dict[str, Dict]) -> Tuple[List[str], torch.Tensor]:
-        ids = sorted(allowed_intents.keys())
-        key_parts: List[str] = []
-        for intent_id in ids:
-            meta = allowed_intents[intent_id]
-            examples = meta.get("examples") or [meta.get("title", intent_id)]
-            normalized_examples = "|".join(str(x).strip().lower() for x in examples[:10])
-            key_parts.append(
-                f"{intent_id}::{str(meta.get('title', '')).strip().lower()}::{normalized_examples}"
-            )
-        key = tuple(key_parts)
-        if self._intent_cache_key == key and self._intent_mat is not None:
-            return self._intent_ids, self._intent_mat
-
-        logger.info("Building intent matrix for %d intents", len(ids))
-        emb_list = []
-        self._intent_ids = []
-        for intent_id in ids:
-            meta = allowed_intents[intent_id]
-            examples = meta.get("examples") or [meta.get("title", intent_id)]
-            ex_text = " ; ".join(str(x) for x in examples[:10])
-            v = self._embed([ex_text])
-            emb_list.append(v)
-            self._intent_ids.append(intent_id)
-
-        mat = torch.cat(emb_list, dim=0)
-        self._intent_cache_key = key
-        self._intent_mat = mat
-        return self._intent_ids, mat
-
-    def _embed(self, texts: List[str]) -> torch.Tensor:
-        enc = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=256,
-            return_tensors="pt",
-        )
-        enc = {k: v.to(self.device) for k, v in enc.items()}
-        out = self.model(**enc)
-        pooled = _mean_pool(out.last_hidden_state, enc["attention_mask"])
-        return _l2_normalize(pooled)
-
-    def _semantic_evidence(self, prep, examples: List[str], top_k: int = 2) -> List[Evidence]:
-        if not examples or not prep.sentences:
-            return []
-
-        try:
-            ex_emb = self._embed(examples)
-            sent_emb = self._embed(prep.sentences)
-
-            sims = (sent_emb @ ex_emb.T).max(dim=1)[0]
-
-            top_indices = torch.topk(sims, k=min(top_k, len(prep.sentences)))[1]
-
-            evidence = []
-            for idx in top_indices:
-                sent = prep.sentences[int(idx)]
-                ts = self._find_timestamp_for_sentence(sent, prep.lines)
-                evidence.append(Evidence(text=sent, timestamp=ts))
-
-            return evidence
-
-        except Exception as e:
-            logger.warning("Semantic evidence extraction failed: %s, falling back to simple method", e)
-            return self._simple_evidence(prep, examples)
-
-    def _find_timestamp_for_sentence(self, sentence: str, lines: List[str]) -> str:
-        sent_norm = sentence.lower().strip()
-
-        for line in lines:
-            m = re.match(r"^\[(\d{2}:\d{2})\]\s*(.*)$", line)
-            if m:
-                ts, txt = m.group(1), m.group(2)
-                txt_norm = txt.lower().strip()
-
-                if sent_norm in txt_norm or txt_norm in sent_norm:
-                    return ts
-
-        return "00:00"
-
-    def _simple_evidence(self, prep, examples: List[str]) -> List[Evidence]:
-        if not examples:
-            return []
-
-        ex_words = set((" ".join(examples)).lower().split())
-
-        scored = []
-        for line in prep.lines:
-            txt = re.sub(r"^\[\d{2}:\d{2}\]\s*", "", line).strip()
-            w = set(txt.split())
-            inter = len(w & ex_words)
-            if inter > 0:
-                scored.append((inter, line))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        out: List[Evidence] = []
-        for _, line in scored[:2]:
-            m = re.match(r"^\[(\d{2}:\d{2})\]\s*(.*)$", line)
-            if m:
-                ts, txt = m.group(1), m.group(2)
-                out.append(Evidence(text=txt, timestamp=ts))
-            else:
-                out.append(Evidence(text=line, timestamp="00:00"))
-        return out
+    def _normalize_priority(self, value: Any) -> Priority:
+        raw = str(value or "").strip().lower()
+        if raw == "normal":
+            raw = "medium"
+        if raw not in {"low", "medium", "high", "critical"}:
+            raw = "medium"
+        return raw  # type: ignore[return-value]

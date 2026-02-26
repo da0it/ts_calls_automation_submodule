@@ -35,6 +35,34 @@ def load_intents(intents_path: Path) -> Dict[str, Dict[str, Any]]:
     return payload
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_grpc_server_credentials(prefix: str):
+    tls_enabled = _env_bool(f"{prefix}_TLS_ENABLED", _env_bool("GRPC_TLS_ENABLED", False))
+    if not tls_enabled:
+        return None
+
+    cert_file = os.getenv(f"{prefix}_TLS_CERT_FILE", "").strip()
+    key_file = os.getenv(f"{prefix}_TLS_KEY_FILE", "").strip()
+    if not cert_file or not key_file:
+        raise RuntimeError(
+            f"{prefix}_TLS_ENABLED=1 but cert/key path is empty "
+            f"({prefix}_TLS_CERT_FILE, {prefix}_TLS_KEY_FILE)"
+        )
+
+    with open(cert_file, "rb") as cert_f:
+        cert_data = cert_f.read()
+    with open(key_file, "rb") as key_f:
+        key_data = key_f.read()
+
+    return grpc.ssl_server_credentials(((key_data, cert_data),))
+
+
 class RoutingService(pb2_grpc.RoutingServiceServicer):
     def __init__(
         self,
@@ -160,10 +188,10 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
         try:
             intents = self._get_intents()
 
-            epochs = _as_int(payload.get("epochs"), self.train_defaults.get("epochs", 90), 10, 400)
-            batch_size = _as_int(payload.get("batch_size"), self.train_defaults.get("batch_size", 32), 8, 256)
+            epochs = _as_int(payload.get("epochs"), self.train_defaults.get("epochs", 3), 1, 12)
+            batch_size = _as_int(payload.get("batch_size"), self.train_defaults.get("batch_size", 16), 4, 64)
             random_seed = _as_int(payload.get("random_seed"), self.train_defaults.get("random_seed", 42), 1, 2**31 - 1)
-            learning_rate = _as_float(payload.get("learning_rate"), self.train_defaults.get("learning_rate", 1e-2), 1e-5, 1.0)
+            learning_rate = _as_float(payload.get("learning_rate"), self.train_defaults.get("learning_rate", 2e-5), 1e-6, 1e-3)
             val_ratio = _as_float(payload.get("val_ratio"), self.train_defaults.get("val_ratio", 0.2), 0.0, 0.5)
             feedback_path = str(payload.get("feedback_path") or self.feedback_path)
             output_path = str(payload.get("output_path") or self.tuned_model_path)
@@ -310,31 +338,21 @@ def serve() -> None:
 
     feedback_path = os.getenv("ROUTER_FEEDBACK_PATH", str(Path(__file__).parent / "configs" / "routing_feedback.jsonl"))
     tuned_model_path = os.getenv("ROUTER_TUNED_MODEL_PATH", str(Path(__file__).parent / "configs" / "router_tuned_head.pt"))
-    tuned_blend_alpha = float(os.getenv("ROUTER_TUNED_BLEND", "0.65"))
     finetuned_enabled = os.getenv("ROUTER_FINETUNED_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}
     finetuned_model_path = os.getenv(
         "ROUTER_FINETUNED_MODEL_PATH",
         str(Path(__file__).parent / "configs" / "router_finetuned_model"),
     )
-    finetuned_blend_alpha = float(os.getenv("ROUTER_FINETUNED_BLEND", "1.0"))
     finetuned_learning_rate = float(os.getenv("ROUTER_FINETUNED_LR", "2e-5"))
     finetuned_epochs = int(os.getenv("ROUTER_FINETUNED_EPOCHS", "3"))
     finetuned_batch_size = int(os.getenv("ROUTER_FINETUNED_BATCH_SIZE", "16"))
     finetuned_max_length = int(os.getenv("ROUTER_FINETUNED_MAX_LENGTH", "256"))
     finetuned_weight_decay = float(os.getenv("ROUTER_FINETUNED_WEIGHT_DECAY", "0.01"))
-    dialog_head_enabled = os.getenv("ROUTER_DIALOG_HEAD_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
-    dialog_blend_alpha = float(os.getenv("ROUTER_DIALOG_BLEND", "0.55"))
-    dialog_d_model = int(os.getenv("ROUTER_DIALOG_D_MODEL", "256"))
-    dialog_nhead = int(os.getenv("ROUTER_DIALOG_NHEAD", "4"))
-    dialog_layers = int(os.getenv("ROUTER_DIALOG_LAYERS", "2"))
-    dialog_dropout = float(os.getenv("ROUTER_DIALOG_DROPOUT", "0.1"))
-    dialog_max_turns = int(os.getenv("ROUTER_DIALOG_MAX_TURNS", "64"))
-    dialog_max_turn_chars = int(os.getenv("ROUTER_DIALOG_MAX_TURN_CHARS", "280"))
 
     train_defaults = {
-        "epochs": int(os.getenv("ROUTER_TRAIN_EPOCHS", "90")),
-        "batch_size": int(os.getenv("ROUTER_TRAIN_BATCH_SIZE", "32")),
-        "learning_rate": float(os.getenv("ROUTER_TRAIN_LR", "0.01")),
+        "epochs": int(os.getenv("ROUTER_TRAIN_EPOCHS", "3")),
+        "batch_size": int(os.getenv("ROUTER_TRAIN_BATCH_SIZE", "16")),
+        "learning_rate": float(os.getenv("ROUTER_TRAIN_LR", "2e-5")),
         "val_ratio": float(os.getenv("ROUTER_TRAIN_VAL_RATIO", "0.2")),
         "random_seed": int(os.getenv("ROUTER_TRAIN_SEED", "42")),
     }
@@ -345,23 +363,13 @@ def serve() -> None:
         model_name=model_name,
         min_confidence=min_confidence,
         tuned_model_path=tuned_model_path,
-        tuned_blend_alpha=tuned_blend_alpha,
         finetuned_enabled=finetuned_enabled,
         finetuned_model_path=finetuned_model_path,
-        finetuned_blend_alpha=finetuned_blend_alpha,
         finetuned_learning_rate=finetuned_learning_rate,
         finetuned_epochs=finetuned_epochs,
         finetuned_batch_size=finetuned_batch_size,
         finetuned_max_length=finetuned_max_length,
         finetuned_weight_decay=finetuned_weight_decay,
-        dialog_head_enabled=dialog_head_enabled,
-        dialog_blend_alpha=dialog_blend_alpha,
-        dialog_d_model=dialog_d_model,
-        dialog_nhead=dialog_nhead,
-        dialog_layers=dialog_layers,
-        dialog_dropout=dialog_dropout,
-        dialog_max_turns=dialog_max_turns,
-        dialog_max_turn_chars=dialog_max_turn_chars,
     )
 
     routing_service = RoutingService(
@@ -388,7 +396,13 @@ def serve() -> None:
     pb2_grpc.add_RoutingServiceServicer_to_server(routing_service, server)
 
     listen_addr = f"[::]:{port}"
-    server.add_insecure_port(listen_addr)
+    creds = _build_grpc_server_credentials("ROUTER_GRPC")
+    if creds is not None:
+        server.add_secure_port(listen_addr, creds)
+        logger.info("Routing gRPC TLS enabled")
+    else:
+        server.add_insecure_port(listen_addr)
+        logger.info("Routing gRPC running without TLS")
     server.start()
     logger.info("Routing gRPC server listening on %s", listen_addr)
 

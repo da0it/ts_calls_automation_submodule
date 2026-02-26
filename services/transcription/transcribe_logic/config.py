@@ -59,63 +59,6 @@ class PyannoteCfg:
     pipeline_name: str = "pyannote/speaker-diarization-3.1"
 
 @dataclass
-class RoleCfg:
-    min_role_turn: float = 0.8
-
-    # анализ старта звонка
-    intro_window_sec: float = 12.0     # первые N секунд
-    intro_reliable_until_sec: float = 1.0  # если первый сегмент позже — старт звонка считаем потерянным
-    early_weight: float = 1.0          # вес ранней речи
-    first_start_weight: float = 0.4    # штраф за "поздно начал"
-    min_confidence: float = 0.25       # если меньше — не уверены
-    opening_max_start_sec: float = 25.0
-    opening_min_score: float = 1.1
-    opening_near_best_delta: float = 0.35
-
-    # ключевые слова (регексы/подстроки; делаем простыми)
-    answerer_phrases: tuple[str, ...] = (
-        "служба поддержки", "техподдерж", "поддержк",
-        "меня зовут", "могу помочь", "чем могу помочь",
-        "компания", "оператор", "слушаю вас",
-        "сервис", "сервисн", "центр",
-        "добрый день", "добрый вечер", "доброе утро",
-        "контакт-центр", "колл-центр", "горячая линия",
-        "вас приветствует", "приветствую",
-        "чем я могу", "как вам помочь", "подскажите номер",
-        "у нас нет", "у нас заказ", "у нас начинается",
-        "секунд", "минут", "ожидайте", "сейчас проверю", "проверим",
-        "оформлен", "подтвержд", "перевожу",
-    )
-    caller_phrases: tuple[str, ...] = (
-        "у меня", "не работает", "проблем", "ошибка",
-        "подскаж", "хочу", "мне нужно", "почему",
-        "купил", "купила", "номер заказа",
-        "доставк", "гарант", "возврат",
-        "я звоню", "я хотел", "я хотела",
-        "мой заказ", "мой номер", "мой договор",
-        "скажите пожалуйста", "можно узнать",
-    )
-    ivr_phrases: tuple[str, ...] = (
-        "нажмите", "для связи", "ваш звонок", "оставайтесь на линии",
-        "переводим", "ожидайте", "робот", "автоответчик",
-    )
-    opening_phrases: tuple[str, ...] = (
-        "добрый день", "добрый вечер", "доброе утро",
-        "меня зовут", "чем могу помочь", "чем я могу помочь",
-        "вас приветствует", "служба поддержки", "оператор",
-        "компания", "контакт-центр", "колл-центр",
-    )
-
-    short_utt_max_dur: float = 0.55
-    short_utt_max_words: int = 2
-    short_utt_max_gap: float = 1.0
-
-    short_utt_texts: tuple[str, ...] = (
-        "че", "чё", "а", "эм", "угу", "ага", "да", "нет", "что", "чего",
-    )
-
-
-@dataclass
 class StereoCfg:
     threshold: float = 0.98
     rms_diff_db: float = 1.0
@@ -128,7 +71,6 @@ class Config:
     turns: TurnsCfg = field(default_factory=TurnsCfg)
     asr: ASRCfg = field(default_factory=ASRCfg)
     pyannote: PyannoteCfg = field(default_factory=PyannoteCfg)
-    role: RoleCfg = field(default_factory=RoleCfg)
     stereo: StereoCfg = field(default_factory=StereoCfg)
 
 CFG = Config()

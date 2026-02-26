@@ -9,7 +9,6 @@ import (
 	callprocessingv1 "orchestrator/internal/gen"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type RoutingClient struct {
@@ -18,10 +17,7 @@ type RoutingClient struct {
 }
 
 func NewRoutingClient(addr string) (*RoutingClient, error) {
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpcConnForService(addr, "ROUTING_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial routing grpc: %w", err)
 	}

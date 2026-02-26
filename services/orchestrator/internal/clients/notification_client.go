@@ -9,7 +9,6 @@ import (
 	callprocessingv1 "orchestrator/internal/gen"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type NotificationClient struct {
@@ -18,10 +17,7 @@ type NotificationClient struct {
 }
 
 func NewNotificationClient(addr string) (*NotificationClient, error) {
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpcConnForService(addr, "NOTIFICATION_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial notification grpc: %w", err)
 	}

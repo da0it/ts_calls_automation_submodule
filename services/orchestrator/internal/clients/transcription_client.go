@@ -12,7 +12,6 @@ import (
 	callprocessingv1 "orchestrator/internal/gen"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type TranscriptionClient struct {
@@ -21,10 +20,7 @@ type TranscriptionClient struct {
 }
 
 func NewTranscriptionClient(addr string) (*TranscriptionClient, error) {
-	conn, err := grpc.NewClient(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	conn, err := grpcConnForService(addr, "TRANSCRIPTION_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial transcription grpc: %w", err)
 	}

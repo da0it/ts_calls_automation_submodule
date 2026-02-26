@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"orchestrator/internal/clients"
 	callprocessingv1 "orchestrator/internal/gen"
 	"orchestrator/internal/handlers"
@@ -46,6 +47,10 @@ func main() {
 	userService := services.NewUserService(db)
 	if err := userService.Migrate(); err != nil {
 		log.Fatalf("Failed to run users migration: %v", err)
+	}
+	auditService := services.NewAuditService(db)
+	if err := auditService.Migrate(); err != nil {
+		log.Fatalf("Failed to run audit migration: %v", err)
 	}
 	if err := userService.SeedAdmin(cfg.AdminUsername, cfg.AdminPassword); err != nil {
 		log.Fatalf("Failed to seed admin: %v", err)
@@ -109,8 +114,8 @@ func main() {
 	)
 
 	// Инициализация handlers
-	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService, routingFeedbackService, routingModelService)
-	authHandler := handlers.NewAuthHandler(userService, cfg.JWTSecret, cfg.JWTExpiryHours)
+	processHandler := handlers.NewProcessHandler(orchestrator, routingConfigService, routingFeedbackService, routingModelService, auditService)
+	authHandler := handlers.NewAuthHandler(userService, cfg.JWTSecret, cfg.JWTExpiryHours, auditService)
 	grpcHandler := handlers.NewProcessGRPCHandler(orchestrator)
 
 	// Auth middleware
@@ -132,16 +137,38 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to listen gRPC: %v", err)
 	}
-	grpcSrv := grpc.NewServer()
+	grpcOptions := make([]grpc.ServerOption, 0, 1)
+	if cfg.GRPCTLSEnabled {
+		creds, tlsErr := credentials.NewServerTLSFromFile(cfg.GRPCTLSCertFile, cfg.GRPCTLSKeyFile)
+		if tlsErr != nil {
+			log.Fatalf("Failed to configure gRPC TLS: %v", tlsErr)
+		}
+		grpcOptions = append(grpcOptions, grpc.Creds(creds))
+	}
+	grpcSrv := grpc.NewServer(grpcOptions...)
 	callprocessingv1.RegisterOrchestratorServiceServer(grpcSrv, grpcHandler)
 
-	log.Printf("Starting Orchestrator HTTP on http://0.0.0.0%s", httpAddr)
-	log.Printf("Starting Orchestrator gRPC on 0.0.0.0%s", grpcAddr)
+	httpScheme := "http"
+	if cfg.HTTPTLSEnabled {
+		httpScheme = "https"
+	}
+	grpcMode := "insecure"
+	if cfg.GRPCTLSEnabled {
+		grpcMode = "tls"
+	}
+	log.Printf("Starting Orchestrator HTTP on %s://0.0.0.0%s", httpScheme, httpAddr)
+	log.Printf("Starting Orchestrator gRPC on 0.0.0.0%s (%s)", grpcAddr, grpcMode)
 	log.Printf("Ready to process calls!")
 
 	go func() {
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start HTTP server: %v", err)
+		var serveErr error
+		if cfg.HTTPTLSEnabled {
+			serveErr = httpSrv.ListenAndServeTLS(cfg.HTTPTLSCertFile, cfg.HTTPTLSKeyFile)
+		} else {
+			serveErr = httpSrv.ListenAndServe()
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			log.Fatalf("Failed to start HTTP server: %v", serveErr)
 		}
 	}()
 

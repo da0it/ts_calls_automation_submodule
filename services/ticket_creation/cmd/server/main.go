@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"ticket_module/internal/adapters"
 	"ticket_module/internal/clients"
 	"ticket_module/internal/database"
@@ -79,11 +80,23 @@ func main() {
 		log.Fatalf("Failed to listen gRPC: %v", err)
 	}
 
-	grpcSrv := grpc.NewServer()
+	grpcOptions := make([]grpc.ServerOption, 0, 1)
+	if cfg.GRPCTLSEnabled {
+		creds, tlsErr := credentials.NewServerTLSFromFile(cfg.GRPCTLSCertFile, cfg.GRPCTLSKeyFile)
+		if tlsErr != nil {
+			log.Fatalf("Failed to configure ticket gRPC TLS: %v", tlsErr)
+		}
+		grpcOptions = append(grpcOptions, grpc.Creds(creds))
+	}
+	grpcSrv := grpc.NewServer(grpcOptions...)
 	callprocessingv1.RegisterTicketServiceServer(grpcSrv, ticketGRPCHandler)
 
 	log.Printf("Starting ticket HTTP service on %s", httpAddr)
-	log.Printf("Starting ticket gRPC service on %s", grpcAddr)
+	grpcMode := "insecure"
+	if cfg.GRPCTLSEnabled {
+		grpcMode = "tls"
+	}
+	log.Printf("Starting ticket gRPC service on %s (%s)", grpcAddr, grpcMode)
 
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

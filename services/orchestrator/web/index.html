@@ -1258,20 +1258,6 @@
       const trainAccuracy = typeof valMetrics.accuracy === 'number' ? valMetrics.accuracy.toFixed(3) : '-';
       const trainPrecision = typeof valMetrics.macro_precision === 'number' ? valMetrics.macro_precision.toFixed(3) : '-';
       const trainRecall = typeof valMetrics.macro_recall === 'number' ? valMetrics.macro_recall.toFixed(3) : '-';
-      const dialogValMetrics = trainReport.dialog_head && trainReport.dialog_head.metrics && trainReport.dialog_head.metrics.val
-        ? trainReport.dialog_head.metrics.val
-        : null;
-      const dialogF1 = dialogValMetrics && typeof dialogValMetrics.macro_f1 === 'number' ? dialogValMetrics.macro_f1.toFixed(3) : '-';
-      const dialogAccuracy = dialogValMetrics && typeof dialogValMetrics.accuracy === 'number' ? dialogValMetrics.accuracy.toFixed(3) : '-';
-      const dialogPrecision = dialogValMetrics && typeof dialogValMetrics.macro_precision === 'number' ? dialogValMetrics.macro_precision.toFixed(3) : '-';
-      const dialogRecall = dialogValMetrics && typeof dialogValMetrics.macro_recall === 'number' ? dialogValMetrics.macro_recall.toFixed(3) : '-';
-      const finetunedValMetrics = trainReport.finetuned_model && trainReport.finetuned_model.metrics && trainReport.finetuned_model.metrics.val
-        ? trainReport.finetuned_model.metrics.val
-        : null;
-      const finetunedF1 = finetunedValMetrics && typeof finetunedValMetrics.macro_f1 === 'number' ? finetunedValMetrics.macro_f1.toFixed(3) : '-';
-      const finetunedAccuracy = finetunedValMetrics && typeof finetunedValMetrics.accuracy === 'number' ? finetunedValMetrics.accuracy.toFixed(3) : '-';
-      const finetunedPrecision = finetunedValMetrics && typeof finetunedValMetrics.macro_precision === 'number' ? finetunedValMetrics.macro_precision.toFixed(3) : '-';
-      const finetunedRecall = finetunedValMetrics && typeof finetunedValMetrics.macro_recall === 'number' ? finetunedValMetrics.macro_recall.toFixed(3) : '-';
       const trainBusy = Boolean(modelStatus.training_in_progress || state.routingModelBusy);
       const groupFormClass = state.showAddGroupForm ? 'collapsible-form' : 'collapsible-form hidden';
       const intentFormClass = state.showAddIntentForm ? 'collapsible-form' : 'collapsible-form hidden';
@@ -1292,9 +1278,7 @@
             <strong>Status reason:</strong> ${escapeHtml(modelReason)}<br />
             <strong>Version:</strong> ${escapeHtml(modelVersion)}<br />
             <strong>Trained at:</strong> ${escapeHtml(modelTrainedAt)}<br />
-            <strong>Last train val (linear):</strong> acc=${escapeHtml(String(trainAccuracy))}, p=${escapeHtml(String(trainPrecision))}, r=${escapeHtml(String(trainRecall))}, f1=${escapeHtml(String(trainF1))}<br />
-            <strong>Last train val (finetuned):</strong> acc=${escapeHtml(String(finetunedAccuracy))}, p=${escapeHtml(String(finetunedPrecision))}, r=${escapeHtml(String(finetunedRecall))}, f1=${escapeHtml(String(finetunedF1))}<br />
-            <strong>Last train val (dialog):</strong> acc=${escapeHtml(String(dialogAccuracy))}, p=${escapeHtml(String(dialogPrecision))}, r=${escapeHtml(String(dialogRecall))}, f1=${escapeHtml(String(dialogF1))}<br />
+            <strong>Last train val:</strong> acc=${escapeHtml(String(trainAccuracy))}, p=${escapeHtml(String(trainPrecision))}, r=${escapeHtml(String(trainRecall))}, f1=${escapeHtml(String(trainF1))}<br />
             <strong>Last train samples:</strong> ${escapeHtml(String(trainSamples))}<br />
             <strong>CSV columns:</strong> <code>final_intent_id</code> or <code>intent_id</code>, and <code>training_sample</code> or <code>text</code> (optional: <code>transcript_text</code>, <code>transcript_segments</code> JSON)
           </div>

@@ -9,8 +9,11 @@ import (
 )
 
 type Config struct {
-	HTTPPort string
-	GRPCPort string
+	HTTPPort        string
+	GRPCPort        string
+	GRPCTLSEnabled  bool
+	GRPCTLSCertFile string
+	GRPCTLSKeyFile  string
 
 	// Enabled channels (comma-separated: "email,telegram,slack,log")
 	EnabledChannels []string
@@ -39,6 +42,9 @@ func Load() *Config {
 	cfg := &Config{
 		HTTPPort:         getEnv("HTTP_PORT", "8085"),
 		GRPCPort:         getEnv("GRPC_PORT", "50055"),
+		GRPCTLSEnabled:   envBool("NOTIFICATION_GRPC_TLS_ENABLED", false),
+		GRPCTLSCertFile:  getEnv("NOTIFICATION_GRPC_TLS_CERT_FILE", ""),
+		GRPCTLSKeyFile:   getEnv("NOTIFICATION_GRPC_TLS_KEY_FILE", ""),
 		EnabledChannels:  parseList(channels),
 		SMTPHost:         getEnv("SMTP_HOST", "localhost"),
 		SMTPPort:         getEnv("SMTP_PORT", "587"),
@@ -51,8 +57,8 @@ func Load() *Config {
 		SlackWebhookURL:  getEnv("SLACK_WEBHOOK_URL", ""),
 	}
 
-	log.Printf("Notification config loaded: HTTP=%s gRPC=%s channels=%v",
-		cfg.HTTPPort, cfg.GRPCPort, cfg.EnabledChannels)
+	log.Printf("Notification config loaded: HTTP=%s gRPC=%s (tls=%v) channels=%v",
+		cfg.HTTPPort, cfg.GRPCPort, cfg.GRPCTLSEnabled, cfg.EnabledChannels)
 
 	return cfg
 }
@@ -73,4 +79,19 @@ func parseList(s string) []string {
 		}
 	}
 	return result
+}
+
+func envBool(key string, defaultValue bool) bool {
+	value := strings.TrimSpace(strings.ToLower(getEnv(key, "")))
+	if value == "" {
+		return defaultValue
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
 }
