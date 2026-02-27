@@ -49,6 +49,20 @@ python3 /Users/dmitrii/ts_calls_automation_submodule/scripts/batch_prepare_label
 
 Optional AI hints: add `--include-ai-hints`.
 
+## Evaluate after manual labeling
+
+When you fill `final_intent_id`, `final_group_id`, `final_priority` in CSV, run:
+
+```bash
+python3 /Users/dmitrii/ts_calls_automation_submodule/scripts/evaluate_routing_csv.py \
+  --csv /absolute/path/to/secure_labeling_dataset.csv
+```
+
+Output:
+
+- Console metrics for `intent`, `group`, `priority`
+- JSON report near CSV: `routing_metrics.json`
+
 
 ## Safety notes
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"orchestrator/internal/models"
@@ -123,10 +124,16 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Received audio file: %s (%.2f MB)", file.Filename, float64(file.Size)/1024/1024)
+	originalName := filepath.Base(file.Filename)
+	ext := strings.ToLower(filepath.Ext(originalName))
+	log.Printf(
+		"Received audio upload request_id=%s ext=%s size_mb=%.2f",
+		c.GetString("request_id"),
+		ext,
+		float64(file.Size)/1024/1024,
+	)
 
 	// Валидация формата
-	ext := filepath.Ext(file.Filename)
 	allowedFormats := map[string]bool{
 		".mp3":  true,
 		".wav":  true,
@@ -151,7 +158,7 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	if requestID == "" {
 		requestID = "no_request_id"
 	}
-	filename := fmt.Sprintf("%s_%s", requestID, file.Filename)
+	filename := fmt.Sprintf("%s_%d%s", requestID, time.Now().UnixNano(), ext)
 	audioPath := filepath.Join(h.uploadDir, filename)
 
 	if err := c.SaveUploadedFile(file, audioPath); err != nil {
@@ -167,7 +174,7 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Audio saved to: %s", audioPath)
+	log.Printf("Saved uploaded audio request_id=%s", requestID)
 	deleteAfterProcess := envBool("ORCH_DELETE_UPLOADED_AUDIO_AFTER_PROCESS", true)
 	if deleteAfterProcess {
 		defer func() {
@@ -262,6 +269,7 @@ func (h *ProcessHandler) Root(c *gin.Context) {
 			"routing_intents":  "POST/DELETE /api/v1/routing-config/intents",
 			"routing_feedback": "POST /api/v1/routing-feedback",
 			"routing_model":    "GET /api/v1/routing-model/status, POST /api/v1/routing-model/reload, POST /api/v1/routing-model/train, POST /api/v1/routing-model/train-csv",
+			"audit_events":     "GET /api/v1/audit/events (admin)",
 			"health":           "GET /health",
 			"docs":             "GET /docs (если включен Swagger)",
 		},

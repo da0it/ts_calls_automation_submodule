@@ -11,14 +11,15 @@ import (
 )
 
 type Config struct {
-	HTTPPort        string
-	GRPCPort        string
-	HTTPTLSEnabled  bool
-	HTTPTLSCertFile string
-	HTTPTLSKeyFile  string
-	GRPCTLSEnabled  bool
-	GRPCTLSCertFile string
-	GRPCTLSKeyFile  string
+	HTTPPort           string
+	GRPCPort           string
+	HTTPTLSEnabled     bool
+	HTTPTLSCertFile    string
+	HTTPTLSKeyFile     string
+	GRPCTLSEnabled     bool
+	GRPCTLSCertFile    string
+	GRPCTLSKeyFile     string
+	CORSAllowedOrigins string
 
 	// gRPC адреса сервисов
 	TranscriptionGRPCAddr     string
@@ -55,6 +56,7 @@ func Load() *Config {
 		GRPCTLSEnabled:            getEnvBool("ORCH_GRPC_TLS_ENABLED", false),
 		GRPCTLSCertFile:           getEnv("ORCH_GRPC_TLS_CERT_FILE", ""),
 		GRPCTLSKeyFile:            getEnv("ORCH_GRPC_TLS_KEY_FILE", ""),
+		CORSAllowedOrigins:        getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:8000,http://localhost:3000"),
 		TranscriptionGRPCAddr:     getEnv("TRANSCRIPTION_GRPC_ADDR", "localhost:50051"),
 		RoutingGRPCAddr:           getEnv("ROUTING_GRPC_ADDR", "localhost:50052"),
 		TicketGRPCAddr:            getEnv("TICKET_GRPC_ADDR", "localhost:50054"),
@@ -85,6 +87,7 @@ func Load() *Config {
 	log.Printf("  - gRPC port: %s", cfg.GRPCPort)
 	log.Printf("  - HTTP TLS enabled: %v", cfg.HTTPTLSEnabled)
 	log.Printf("  - gRPC TLS enabled: %v", cfg.GRPCTLSEnabled)
+	log.Printf("  - CORS allowed origins: %s", cfg.CORSAllowedOrigins)
 	log.Printf("  - Transcription gRPC: %s", cfg.TranscriptionGRPCAddr)
 	log.Printf("  - Routing gRPC: %s", cfg.RoutingGRPCAddr)
 	log.Printf("  - Ticket gRPC: %s", cfg.TicketGRPCAddr)

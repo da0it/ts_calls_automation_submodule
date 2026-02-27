@@ -138,7 +138,13 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
         Обрабатывает запрос на транскрибацию
         """
         start_time = time.time()
-        logger.info(f"Received request: call_id={request.call_id}, filename={request.filename}")
+        file_ext = Path(request.filename).suffix.lower() or ".mp3"
+        logger.info(
+            "Received request: call_id=%s ext=%s bytes=%d",
+            request.call_id,
+            file_ext,
+            len(request.audio or b""),
+        )
 
         if not request.audio:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -148,12 +154,10 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
         temp_file = None
         try:
             # Сохраняем аудио во временный файл
-            file_ext = Path(request.filename).suffix or ".mp3"
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                 tmp.write(request.audio)
                 temp_file = tmp.name
-            
-            logger.info(f"Saved audio to temporary file: {temp_file} ({len(request.audio)} bytes)")
+            logger.info("Temporary audio file created for call_id=%s", request.call_id)
             
             # Вызываем функцию транскрибации
             result = transcribe_with_roles(
@@ -206,7 +210,7 @@ class TranscriptionServicer(pb2_grpc.TranscriptionServiceServicer):
             # Удаляем временный файл
             if temp_file and os.path.exists(temp_file):
                 os.unlink(temp_file)
-                logger.debug(f"Deleted temporary file: {temp_file}")
+                logger.debug("Temporary audio file deleted for call_id=%s", request.call_id)
 
 
 def serve():

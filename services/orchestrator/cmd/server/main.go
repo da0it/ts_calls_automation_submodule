@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -123,7 +124,7 @@ func main() {
 	adminMw := middleware.RequireRole(models.RoleAdmin)
 
 	// HTTP router
-	router := setupRouter(processHandler, authHandler, authMw, adminMw)
+	router := setupRouter(processHandler, authHandler, authMw, adminMw, cfg)
 
 	httpAddr := ":" + cfg.HTTPPort
 	httpSrv := &http.Server{
@@ -202,6 +203,7 @@ func setupRouter(
 	auth *handlers.AuthHandler,
 	authMw gin.HandlerFunc,
 	adminMw gin.HandlerFunc,
+	cfg *config.Config,
 ) *gin.Engine {
 	// Production mode
 	if os.Getenv("GIN_MODE") == "" {
@@ -212,7 +214,7 @@ func setupRouter(
 
 	// Middleware
 	router.Use(gin.Recovery())
-	router.Use(corsMiddleware())
+	router.Use(corsMiddleware(cfg.CORSAllowedOrigins))
 	router.Use(requestIDMiddleware())
 
 	// Limit upload size (500 MB)
@@ -251,6 +253,7 @@ func setupRouter(
 			admin.POST("/routing-model/reload", h.ReloadRoutingModel)
 			admin.POST("/routing-model/train", h.TrainRoutingModel)
 			admin.POST("/routing-model/train-csv", h.TrainRoutingModelCSV)
+			admin.GET("/audit/events", h.ListAuditEvents)
 
 			// User management
 			admin.GET("/users", auth.ListUsers)
@@ -264,11 +267,21 @@ func setupRouter(
 	return router
 }
 
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(allowedOriginsRaw string) gin.HandlerFunc {
+	allowedOrigins := parseAllowedOrigins(allowedOriginsRaw)
+	allowAny := allowedOrigins["*"]
+
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		setSecurityHeaders(c)
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		if allowAny {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if origin != "" && allowedOrigins[origin] {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -277,6 +290,24 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func parseAllowedOrigins(raw string) map[string]bool {
+	out := make(map[string]bool)
+	for _, item := range strings.Split(raw, ",") {
+		origin := strings.TrimSpace(item)
+		if origin == "" {
+			continue
+		}
+		out[origin] = true
+	}
+	return out
+}
+
+func setSecurityHeaders(c *gin.Context) {
+	c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
+	c.Writer.Header().Set("X-Frame-Options", "DENY")
+	c.Writer.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 func requestIDMiddleware() gin.HandlerFunc {

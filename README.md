@@ -27,6 +27,14 @@
 - `configs/ticket.env`
 - `configs/orchestrator.env`
 
+## Security notes
+
+- CORS теперь ограничивается списком `CORS_ALLOWED_ORIGINS` (по умолчанию localhost-ориджины).
+- Для админа доступен аудит действий: `GET /api/v1/audit/events` (только admin JWT).
+- В ticket service PII в описание тикета по умолчанию отключены:
+  `TICKET_INCLUDE_PII_IN_DESCRIPTION=0`.
+- В orchestrator/transcription убраны лишние детали из логов (имена файлов/пути временных файлов).
+
 ## Go проверка
 
 ```bash

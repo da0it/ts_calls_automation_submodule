@@ -1,14 +1,15 @@
-# transcribe/pipeline.py
 from __future__ import annotations
 
 import os
 import tempfile
 from typing import Any, Dict, List, Optional
+
 from transcribe_logic.audio_utils import to_wav_16k_mono_preprocessed
 from transcribe_logic.whisperx_ext import whisperx_diarize_via_cli
 from transcribe_logic.whisperx_runtime import whisperx_diarize_inprocess
 
 ROLE_UNKNOWN = "не определено"
+
 
 def _default_whisperx_venv_python() -> str:
     return os.getenv(
@@ -36,10 +37,6 @@ def _merge_adjacent_same_speaker(
     segments: List[Dict[str, Any]],
     max_gap: float = 0.7,
 ) -> List[Dict[str, Any]]:
-    """
-    Склеивает соседние сегменты одного speaker, если они почти подряд.
-    Полезно, чтобы роль-логика работала стабильнее.
-    """
     if not segments:
         return []
 
@@ -68,10 +65,6 @@ def _smooth_short_speaker_flips(
     max_flip_sec: float = 0.9,
     max_flip_words: int = 3,
 ) -> List[Dict[str, Any]]:
-    """
-    Убирает "дребезг" diarization: короткий сегмент другого спикера
-    между двумя сегментами одного и того же спикера.
-    """
     if len(segments) < 3:
         return segments
 
@@ -103,10 +96,6 @@ def _smooth_short_speaker_flips(
 
 
 def _ensure_speakers_exist(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Если diarization выключен или не вернул speaker у части сегментов,
-    ставим дефолт, чтобы последующая роль-логика не падала.
-    """
     for s in segments:
         if not s.get("speaker"):
             s["speaker"] = "SPEAKER_00"
@@ -126,22 +115,18 @@ def _mark_segments_unknown_role(segments: List[Dict[str, Any]]) -> None:
 def transcribe_with_roles(
     audio_path: str,
     *,
-    hf_token: Optional[str] = None,  # не используется здесь, оставлено для совместимости интерфейса
+    hf_token: Optional[str] = None,
+    no_stem: bool = False,  # kept for backward compatibility; currently unused.
     whisper_repo_dir: str = os.getenv("WHISPER_REPO_DIR", os.path.expanduser("~/whisper-diarization")),
+    whisper_venv_python: str = "",
 ) -> Dict[str, Any]:
-    """
-    Пайплайн WhisperX:
-      input audio -> mono wav 16k -> whisperx transcribe+align+diarization
-      -> роли (по умолчанию выключены, помечаются как "не определено")
-    """
+    del no_stem
+
     if hf_token:
-        # Поддерживаем прежний интерфейс вызова.
         os.environ["HF_TOKEN"] = hf_token
 
     with tempfile.TemporaryDirectory() as td:
         wav = os.path.join(td, "audio_mono.wav")
-
-        # 1) приводим вход к mono 16k
         to_wav_16k_mono_preprocessed(audio_path, wav)
 
         diarization_backend = os.getenv("WHISPERX_DIARIZATION_BACKEND", "pyannote").strip().lower()
@@ -158,20 +143,21 @@ def transcribe_with_roles(
             nemo_repo_dir=os.getenv("WHISPER_REPO_DIR", whisper_repo_dir),
             hf_token=os.getenv("HF_TOKEN"),
         )
+
         persistent = os.getenv("WHISPERX_PERSISTENT", "1").strip().lower() in {"1", "true", "yes", "on"}
         if persistent:
             segments = whisperx_diarize_inprocess(wav, **common_kwargs)
             mode = "whisperx_persistent"
         else:
+            venv_python = whisper_venv_python or _default_whisperx_venv_python()
             segments = whisperx_diarize_via_cli(
                 wav,
-                venv_python=_default_whisperx_venv_python(),
+                venv_python=venv_python,
                 **common_kwargs,
             )
             mode = "whisperx_cli"
-        note = (
-            f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align+{diarization_backend} diarization."
-        )
+
+        note = f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align+{diarization_backend} diarization."
 
         if not segments:
             return {
@@ -182,11 +168,9 @@ def transcribe_with_roles(
                 "note": "Backend returned no segments.",
             }
 
-        # 3) гарантируем наличие speaker поля
         segments = _ensure_speakers_exist(segments)
-
-        # 4) слегка приводим сегменты в порядок
         segments = _round_segments(segments, ndigits=2)
+
         smooth_segments = os.getenv("WHISPERX_SMOOTH_SEGMENTS", "0").strip().lower() in {"1", "true", "yes", "on"}
         if smooth_segments:
             segments = _smooth_short_speaker_flips(
@@ -199,7 +183,6 @@ def transcribe_with_roles(
                 max_gap=float(os.getenv("WHISPERX_MERGE_GAP_SEC", "0.35")),
             )
 
-        # 5) MVP: роль в диалоге не выводим, используем только diarization speakers.
         _mark_segments_unknown_role(segments)
         role_map = _unknown_role_map(segments)
         note += " Role inference: disabled (all roles = unknown)."
@@ -211,3 +194,4 @@ def transcribe_with_roles(
             "role_mapping": role_map,
             "note": note,
         }
+
