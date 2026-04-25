@@ -62,6 +62,30 @@ python3 tests/evaluate_ab_test.py \
   --csv /absolute/path/to/secure_labeling_dataset.csv
 ```
 
+For a full-stand A/B experiment on real audio files:
+
+```bash
+python3 tests/prepare_ab_eval_audio.py \
+  --audio-dir /absolute/path/to/eval_audio \
+  --base-url http://localhost:8000 \
+  --username admin \
+  --password 'YOUR_PASSWORD'
+```
+
+Then give only `manual_template.csv` to the operator, fill:
+`manual_time_sec`, `final_intent_id`, `final_group_id`, `final_priority`.
+
+```bash
+python3 tests/merge_ab_eval_audio.py \
+  --system-csv /absolute/path/to/system_results.csv \
+  --manual-csv /absolute/path/to/manual_template.csv
+```
+
+```bash
+python3 tests/evaluate_ab_test.py \
+  --csv /absolute/path/to/ab_eval_merged.csv
+```
+
 ```bash
 python3 tests/evaluate_pipeline_csv.py \
   --csv /absolute/path/to/final.csv \
