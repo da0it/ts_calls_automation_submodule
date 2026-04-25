@@ -1,0 +1,13 @@
+scanners:
+  - vuln
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+skip-dirs:
+  - .git
+  - reports
+  - services/shared/proto
+  - services/orchestrator/internal/gen
+  - services/ticket_creation/internal/gen
+  - services/notification_sender/internal/gen

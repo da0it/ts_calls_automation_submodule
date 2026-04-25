@@ -147,8 +147,9 @@ func main() {
 
 	httpAddr := ":" + cfg.HTTPPort
 	httpSrv := &http.Server{
-		Addr:    httpAddr,
-		Handler: router,
+		Addr:              httpAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// gRPC server

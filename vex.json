@@ -1,0 +1,145 @@
+{
+  "document_type": "VEX",
+  "spec_version": "1.0",
+  "format": "custom-json",
+  "metadata": {
+    "project": "ts_calls_automation_submodule",
+    "date": "2026-04-25",
+    "source_report": "reports/sca/trivy-report.json"
+  },
+  "product": {
+    "name": "ts_calls_automation_submodule",
+    "version": "workspace",
+    "type": "application"
+  },
+  "statements": [
+    {
+      "statement_id": "VEX-001",
+      "vulnerability_id": "CVE-2026-33186",
+      "component": "google.golang.org/grpc",
+      "versions": [
+        "v1.64.0",
+        "v1.79.1"
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "product_paths": [
+        "services/orchestrator/go.mod",
+        "services/ticket_creation/go.mod",
+        "services/notification_sender/go.mod"
+      ],
+      "impact_statement": "The project does not import google.golang.org/grpc/authz and does not use authorization policy evaluation paths affected by the advisory.",
+      "evidence": [
+        "Search for 'google.golang.org/grpc/authz|authz' in services/ returned no matches."
+      ]
+    },
+    {
+      "statement_id": "VEX-002",
+      "vulnerability_id": "CVE-2025-14009",
+      "component": "nltk",
+      "versions": [
+        "3.9.2"
+      ],
+      "status": "not_affected",
+      "justification": "component_not_in_execute_path",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt"
+      ],
+      "impact_statement": "NLTK is not imported by the project code and is present only as an inactive transitive dependency of the DeepPavlov-based image.",
+      "evidence": [
+        "Search for 'import nltk' and 'from nltk' in services/ returned no matches."
+      ]
+    },
+    {
+      "statement_id": "VEX-003",
+      "vulnerability_id": "CVE-2026-0846",
+      "component": "nltk",
+      "versions": [
+        "3.9.2"
+      ],
+      "status": "not_affected",
+      "justification": "component_not_in_execute_path",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt"
+      ],
+      "impact_statement": "NLTK is not imported by the project code and is present only as an inactive transitive dependency of the DeepPavlov-based image.",
+      "evidence": [
+        "Search for 'import nltk' and 'from nltk' in services/ returned no matches."
+      ]
+    },
+    {
+      "statement_id": "VEX-004",
+      "vulnerability_id": "CVE-2026-33231",
+      "component": "nltk",
+      "versions": [
+        "3.9.2"
+      ],
+      "status": "not_affected",
+      "justification": "component_not_in_execute_path",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt"
+      ],
+      "impact_statement": "NLTK is not imported by the project code and is present only as an inactive transitive dependency of the DeepPavlov-based image.",
+      "evidence": [
+        "Search for 'import nltk' and 'from nltk' in services/ returned no matches."
+      ]
+    },
+    {
+      "statement_id": "VEX-005",
+      "vulnerability_id": "CVE-2026-33236",
+      "component": "nltk",
+      "versions": [
+        "3.9.2"
+      ],
+      "status": "not_affected",
+      "justification": "component_not_in_execute_path",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt"
+      ],
+      "impact_statement": "NLTK is not imported by the project code and is present only as an inactive transitive dependency of the DeepPavlov-based image.",
+      "evidence": [
+        "Search for 'import nltk' and 'from nltk' in services/ returned no matches."
+      ]
+    },
+    {
+      "statement_id": "VEX-006",
+      "vulnerability_id": "CVE-2023-6730",
+      "component": "transformers",
+      "versions": [
+        "4.30.0"
+      ],
+      "status": "not_affected",
+      "justification": "requires_configuration_not_present",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt",
+        "services/entity_extraction/Dockerfile",
+        "services/entity_extraction/extractor/entity_extractor.py"
+      ],
+      "impact_statement": "Entity extraction models are baked into the image during build and the service does not accept user-supplied checkpoint files at runtime.",
+      "evidence": [
+        "DeepPavlov model installation and download are executed in the Docker build stage.",
+        "The service exposes HTTP endpoints for entity extraction, but no endpoint for uploading model files."
+      ]
+    },
+    {
+      "statement_id": "VEX-007",
+      "vulnerability_id": "CVE-2025-32434",
+      "component": "torch",
+      "versions": [
+        "1.13.1"
+      ],
+      "status": "not_affected",
+      "justification": "requires_configuration_not_present",
+      "product_paths": [
+        "services/entity_extraction/requirements.txt",
+        "services/entity_extraction/Dockerfile",
+        "services/entity_extraction/extractor/entity_extractor.py"
+      ],
+      "impact_statement": "The vulnerable model deserialization path is limited to trusted image-baked artifacts; runtime uploads of model files are not supported in this service.",
+      "evidence": [
+        "DeepPavlov model installation and download are executed in the Docker build stage.",
+        "The service exposes HTTP endpoints for entity extraction, but no endpoint for uploading model files."
+      ]
+    }
+  ]
+}

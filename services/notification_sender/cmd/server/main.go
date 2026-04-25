@@ -38,7 +38,11 @@ func main() {
 	// HTTP server (Gin)
 	router := setupRouter(httpHandler)
 	httpAddr := ":" + cfg.HTTPPort
-	httpSrv := &http.Server{Addr: httpAddr, Handler: router}
+	httpSrv := &http.Server{
+		Addr:              httpAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	// gRPC server
 	grpcAddr := ":" + cfg.GRPCPort

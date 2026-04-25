@@ -87,8 +87,9 @@ func main() {
 	router := setupRouter(ticketHandler, cfg)
 	httpAddr := ":" + cfg.ServerPort
 	httpSrv := &http.Server{
-		Addr:    httpAddr,
-		Handler: router,
+		Addr:              httpAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// gRPC server

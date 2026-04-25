@@ -367,7 +367,9 @@ func NewProcessHandler(
 ) *ProcessHandler {
 	// Создаём директорию для загрузки файлов
 	uploadDir := "./uploads"
-	os.MkdirAll(uploadDir, 0755)
+	if err := os.MkdirAll(uploadDir, 0750); err != nil {
+		log.Printf("Failed to create upload directory %s: %v", uploadDir, err)
+	}
 
 	return &ProcessHandler{
 		orchestrator:           orchestrator,

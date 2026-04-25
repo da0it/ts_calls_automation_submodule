@@ -150,11 +150,11 @@ func (s *RoutingFeedbackService) SaveFeedback(input RoutingFeedbackRequest) (*Ro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(s.feedbackPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.feedbackPath), 0750); err != nil {
 		return nil, fmt.Errorf("create feedback directory: %w", err)
 	}
 
-	file, err := os.OpenFile(s.feedbackPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(s.feedbackPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("open feedback file: %w", err)
 	}

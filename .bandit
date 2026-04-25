@@ -1,0 +1,2 @@
+[bandit]
+exclude = tests,services/*/grpc_gen,services/shared/proto

@@ -552,7 +552,7 @@ func readJSONFile(path string, out any) error {
 }
 
 func writeJSONFileAtomic(path string, payload any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
 
@@ -563,7 +563,7 @@ func writeJSONFileAtomic(path string, payload any) error {
 	body = append(body, '\n')
 
 	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, body, 0644); err != nil {
+	if err := os.WriteFile(tmpPath, body, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmpPath, path)

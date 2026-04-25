@@ -1,0 +1,81 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "project": "ts_calls_automation_submodule",
+    "date": "2026-04-25"
+  },
+  "policy": {
+    "max_cvss_score": 9.0,
+    "warn_cvss_score": 7.0,
+    "auto_block_severities": [
+      "CRITICAL"
+    ],
+    "warn_severities": [
+      "HIGH"
+    ],
+    "banned_components": [
+      {
+        "name": "openssl",
+        "version": "1.0.2",
+        "reason": "Legacy cryptographic stack is forbidden in the project."
+      },
+      {
+        "name": "log4j-core",
+        "version": "2.14.1",
+        "reason": "Known unsafe version is forbidden by organizational policy."
+      }
+    ],
+    "crypto_requirements": {
+      "banned_algorithms": [
+        "MD5",
+        "SHA1",
+        "DES",
+        "RC4"
+      ],
+      "min_hash": "SHA256",
+      "min_cipher": "AES-128-GCM"
+    },
+    "remediation_deadline": {
+      "CRITICAL": 1,
+      "HIGH": 7,
+      "MEDIUM": 30
+    },
+    "ignored_findings": [
+      {
+        "vulnerability_id": "CVE-2026-33186",
+        "package": "google.golang.org/grpc",
+        "reason": "The project does not import google.golang.org/grpc/authz and does not use authorization policy evaluation paths affected by this advisory."
+      },
+      {
+        "vulnerability_id": "CVE-2025-14009",
+        "package": "nltk",
+        "reason": "NLTK is not imported by the project code and is present only as a dormant dependency in the DeepPavlov-based image."
+      },
+      {
+        "vulnerability_id": "CVE-2026-0846",
+        "package": "nltk",
+        "reason": "NLTK is not imported by the project code and is present only as a dormant dependency in the DeepPavlov-based image."
+      },
+      {
+        "vulnerability_id": "CVE-2026-33231",
+        "package": "nltk",
+        "reason": "NLTK is not imported by the project code and is present only as a dormant dependency in the DeepPavlov-based image."
+      },
+      {
+        "vulnerability_id": "CVE-2026-33236",
+        "package": "nltk",
+        "reason": "NLTK is not imported by the project code and is present only as a dormant dependency in the DeepPavlov-based image."
+      },
+      {
+        "vulnerability_id": "CVE-2023-6730",
+        "package": "transformers",
+        "reason": "Entity extraction models are baked into the image during build and the service does not accept user-supplied checkpoints at runtime."
+      },
+      {
+        "vulnerability_id": "CVE-2025-32434",
+        "package": "torch",
+        "reason": "The vulnerable model deserialization path is limited to trusted image-baked artifacts; runtime uploads of model files are not supported in this service."
+      }
+    ]
+  }
+}

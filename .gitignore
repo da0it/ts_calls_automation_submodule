@@ -28,6 +28,7 @@ build/
 exports/
 services/orchestrator/uploads/
 functional_test_report.json
+reports/
 
 # ==========================
 # Environment & Secrets
