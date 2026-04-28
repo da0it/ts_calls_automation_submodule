@@ -54,6 +54,22 @@ def clean(value) -> str:
     return raw
 
 
+def normalize_intent(value) -> str:
+    raw = clean(value).lower()
+    if raw in {"spam", "spam.call"}:
+        return "spam.call"
+    return raw
+
+
+def normalize_binary_spam(value) -> str:
+    raw = clean(value).lower()
+    if raw in {"1", "true", "yes", "spam", "spam.call"}:
+        return "spam"
+    if raw in {"0", "false", "no", "non_spam", "not_spam", "legit"}:
+        return "non_spam"
+    return ""
+
+
 def to_float(value):
     try:
         return float(value)
@@ -161,12 +177,14 @@ def find_audio_path(row, csv_dir: Path, audio_dir: Path | None, indexed_files: d
     return None
 
 
-def build_report(rows, true_col, pred_col):
+def build_report(rows, true_col, pred_col, *, row_filter=None):
     y_true = []
     y_pred = []
     skipped = 0
 
     for row in rows:
+        if row_filter is not None and not row_filter(row):
+            continue
         true_value = clean(row.get(true_col))
         if not true_value:
             skipped += 1
@@ -304,6 +322,7 @@ def parse_args():
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--intent-col", default="call_purpose", help="Gold intent column in the labeled CSV.")
+    parser.add_argument("--spam-col", default="manual_is_spam", help="Optional gold spam column for binary metrics.")
     parser.add_argument("--group-col", default="", help="Optional gold group column.")
     parser.add_argument("--priority-col", default="", help="Optional gold priority column.")
     parser.add_argument("--timeout", type=int, default=3600)
@@ -360,10 +379,14 @@ def main():
         if selected_rows and idx not in selected_rows:
             continue
 
-        gold_intent = clean(row.get(args.intent_col))
+        gold_intent = normalize_intent(row.get(args.intent_col))
         gold_group = clean(row.get(args.group_col)) if args.group_col else ""
         gold_priority = clean(row.get(args.priority_col)) if args.priority_col else ""
-        gold_binary = "spam" if gold_intent.lower() in {"spam", "spam.call"} else "non_spam"
+        gold_binary = ""
+        if args.spam_col and args.spam_col in headers:
+            gold_binary = normalize_binary_spam(row.get(args.spam_col))
+        if not gold_binary:
+            gold_binary = "spam" if gold_intent == "spam.call" else "non_spam"
         audio_path = find_audio_path(row, csv_dir, audio_dir, audio_index)
 
         item = {
@@ -419,7 +442,7 @@ def main():
             routing = payload.get("routing") or {}
             ticket = payload.get("ticket") or {}
             item["pipeline_status"] = clean(payload.get("status"))
-            item["ai_intent_id"] = clean(routing.get("intent_id"))
+            item["ai_intent_id"] = normalize_intent(routing.get("intent_id"))
             item["ai_group_id"] = clean(routing.get("suggested_group"))
             item["ai_priority"] = clean(routing.get("priority"))
             item["ai_confidence"] = to_float(routing.get("intent_confidence")) or ""
@@ -454,6 +477,12 @@ def main():
         "processed_with_error": len(results) - len(ok_rows),
         "status_counts": dict(Counter(clean(row.get("pipeline_status")) or "unknown" for row in ok_rows)),
         "intent": build_report(results, "final_intent_id", "ai_intent_id"),
+        "intent_non_spam": build_report(
+            results,
+            "final_intent_id",
+            "ai_intent_id",
+            row_filter=lambda row: clean(row.get("gold_binary")) == "non_spam",
+        ),
         "binary": calc_binary_metrics(results),
         "avg_total_time_sec": round(
             sum(float(row["total_time_sec"]) for row in ok_rows if row["total_time_sec"] != "") / max(1, len(ok_rows)),
@@ -468,6 +497,7 @@ def main():
         report["priority"] = build_report(results, "final_priority", "ai_priority")
 
     print_report("Intent", report["intent"])
+    print_report("Intent (non-spam only)", report["intent_non_spam"])
     if args.group_col:
         print_report("Group", report["group"])
     if args.priority_col:
