@@ -19,6 +19,16 @@ EMPTY = "__empty__"
 
 def detect_delimiter(path: Path) -> str:
     sample = path.read_text(encoding="utf-8-sig", errors="ignore")[:4096]
+    first_line = next((line for line in sample.splitlines() if line.strip()), "")
+    if first_line:
+        header_counts = {
+            ";": first_line.count(";"),
+            ",": first_line.count(","),
+            "\t": first_line.count("\t"),
+        }
+        best_delim = max(header_counts, key=header_counts.get)
+        if header_counts[best_delim] > 0:
+            return best_delim
     try:
         dialect = csv.Sniffer().sniff(sample, delimiters=";,\t")
         return dialect.delimiter
