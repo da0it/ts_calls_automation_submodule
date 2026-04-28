@@ -140,7 +140,7 @@ def upload_file(url, file_path: Path, headers=None, timeout=3600):
     return status, data
 
 
-def find_audio_path(row, csv_dir: Path, audio_dir: Path | None, indexed_files: dict[str, Path]):
+def find_audio_path(row, csv_dir: Path, audio_dir: Path | None, indexed_files: dict[str, list[Path]]):
     for key in ["audio_path", "file_path", "path"]:
         raw = clean(row.get(key))
         if not raw:
@@ -170,9 +170,11 @@ def find_audio_path(row, csv_dir: Path, audio_dir: Path | None, indexed_files: d
         direct = (audio_dir / filename).resolve()
         if direct.exists():
             return direct
-        by_name = indexed_files.get(Path(filename).name)
-        if by_name is not None:
-            return by_name
+        by_name = indexed_files.get(Path(filename).name) or []
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            return None
 
     return None
 
@@ -355,11 +357,18 @@ def main():
     selected_rows = {int(x) for x in args.row_id if int(x) > 0}
     csv_dir = csv_path.parent
 
-    audio_index = {}
+    audio_index: dict[str, list[Path]] = {}
     if audio_dir:
         for path in audio_dir.rglob("*"):
             if path.is_file() and path.suffix.lower() in ALLOWED_AUDIO:
-                audio_index[path.name] = path.resolve()
+                audio_index.setdefault(path.name, []).append(path.resolve())
+
+    duplicate_audio_names = sorted(name for name, paths in audio_index.items() if len(paths) > 1)
+    if duplicate_audio_names:
+        print(
+            f"[WARN] found {len(duplicate_audio_names)} duplicate audio basenames in audio-dir; "
+            "ambiguous rows will be skipped unless filename resolves uniquely"
+        )
 
     base_url = args.base_url.rstrip("/")
     status, body = request_json(
@@ -414,9 +423,13 @@ def main():
         }
 
         if audio_path is None:
-            item["error"] = "audio_not_found"
+            filename = clean(row.get("filename"))
+            if filename and len(audio_index.get(Path(filename).name, [])) > 1:
+                item["error"] = "audio_ambiguous_filename"
+            else:
+                item["error"] = "audio_not_found"
             results.append(item)
-            print(f"[SKIP] row {idx}: audio not found")
+            print(f"[SKIP] row {idx}: {item['error']}")
             continue
 
         try:

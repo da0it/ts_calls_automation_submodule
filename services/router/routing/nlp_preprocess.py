@@ -242,7 +242,9 @@ def build_model_text(
     if mode_norm == "tokens":
         return " ".join(tokens).strip() or canonical_text
     if mode_norm in {"plain", "normalized"}:
-        return re.sub(r"^\[\d{2}:\d{2}\]\s*", "", canonical_text, flags=re.MULTILINE).strip() or canonical_text
+        plain_text = re.sub(r"^\[\d{2}:\d{2}\]\s*", "", canonical_text, flags=re.MULTILINE)
+        plain_text = WS_RE.sub(" ", plain_text).strip()
+        return plain_text or canonical_text
     return canonical_text
 
 
