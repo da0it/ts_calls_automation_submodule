@@ -10,14 +10,12 @@ PIP_BIN="${PIP_BIN:-$PYTHON_BIN -m pip}"
 
 GO_OUT_DIRS=(
   "$ROOT_DIR/services/orchestrator/internal/gen"
-  "$ROOT_DIR/services/notification_sender/internal/gen"
   "$ROOT_DIR/services/ticket_creation/internal/gen"
 )
 
 PY_OUT_DIRS=(
   "$ROOT_DIR/services/router/grpc_gen"
   "$ROOT_DIR/services/transcription/grpc_gen"
-  "$ROOT_DIR/services/entity_extraction/grpc_gen"
 )
 
 log() {

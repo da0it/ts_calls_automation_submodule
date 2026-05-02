@@ -1047,221 +1047,24 @@ func (x *ProcessCallRequest) GetCallId() string {
 	return ""
 }
 
-type NotificationChannel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
-	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	Destination   string                 `protobuf:"bytes,4,opt,name=destination,proto3" json:"destination,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NotificationChannel) Reset() {
-	*x = NotificationChannel{}
-	mi := &file_call_processing_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NotificationChannel) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NotificationChannel) ProtoMessage() {}
-
-func (x *NotificationChannel) ProtoReflect() protoreflect.Message {
-	mi := &file_call_processing_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NotificationChannel.ProtoReflect.Descriptor instead.
-func (*NotificationChannel) Descriptor() ([]byte, []int) {
-	return file_call_processing_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *NotificationChannel) GetType() string {
-	if x != nil {
-		return x.Type
-	}
-	return ""
-}
-
-func (x *NotificationChannel) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *NotificationChannel) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
-func (x *NotificationChannel) GetDestination() string {
-	if x != nil {
-		return x.Destination
-	}
-	return ""
-}
-
-type SendNotificationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CallId        string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
-	Transcript    *Transcript            `protobuf:"bytes,2,opt,name=transcript,proto3" json:"transcript,omitempty"`
-	Routing       *Routing               `protobuf:"bytes,3,opt,name=routing,proto3" json:"routing,omitempty"`
-	Entities      *Entities              `protobuf:"bytes,4,opt,name=entities,proto3" json:"entities,omitempty"`
-	Ticket        *TicketCreated         `protobuf:"bytes,5,opt,name=ticket,proto3" json:"ticket,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SendNotificationRequest) Reset() {
-	*x = SendNotificationRequest{}
-	mi := &file_call_processing_proto_msgTypes[17]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SendNotificationRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SendNotificationRequest) ProtoMessage() {}
-
-func (x *SendNotificationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_call_processing_proto_msgTypes[17]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SendNotificationRequest.ProtoReflect.Descriptor instead.
-func (*SendNotificationRequest) Descriptor() ([]byte, []int) {
-	return file_call_processing_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *SendNotificationRequest) GetCallId() string {
-	if x != nil {
-		return x.CallId
-	}
-	return ""
-}
-
-func (x *SendNotificationRequest) GetTranscript() *Transcript {
-	if x != nil {
-		return x.Transcript
-	}
-	return nil
-}
-
-func (x *SendNotificationRequest) GetRouting() *Routing {
-	if x != nil {
-		return x.Routing
-	}
-	return nil
-}
-
-func (x *SendNotificationRequest) GetEntities() *Entities {
-	if x != nil {
-		return x.Entities
-	}
-	return nil
-}
-
-func (x *SendNotificationRequest) GetTicket() *TicketCreated {
-	if x != nil {
-		return x.Ticket
-	}
-	return nil
-}
-
-type SendNotificationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Results       []*NotificationChannel `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SendNotificationResponse) Reset() {
-	*x = SendNotificationResponse{}
-	mi := &file_call_processing_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SendNotificationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SendNotificationResponse) ProtoMessage() {}
-
-func (x *SendNotificationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_call_processing_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SendNotificationResponse.ProtoReflect.Descriptor instead.
-func (*SendNotificationResponse) Descriptor() ([]byte, []int) {
-	return file_call_processing_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *SendNotificationResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *SendNotificationResponse) GetResults() []*NotificationChannel {
-	if x != nil {
-		return x.Results
-	}
-	return nil
-}
-
 type ProcessCallResponse struct {
-	state          protoimpl.MessageState    `protogen:"open.v1"`
-	CallId         string                    `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
-	Transcript     *Transcript               `protobuf:"bytes,2,opt,name=transcript,proto3" json:"transcript,omitempty"`
-	Routing        *Routing                  `protobuf:"bytes,3,opt,name=routing,proto3" json:"routing,omitempty"`
-	Entities       *Entities                 `protobuf:"bytes,4,opt,name=entities,proto3" json:"entities,omitempty"`
-	Ticket         *TicketCreated            `protobuf:"bytes,5,opt,name=ticket,proto3" json:"ticket,omitempty"`
-	ProcessingTime map[string]float64        `protobuf:"bytes,6,rep,name=processing_time,json=processingTime,proto3" json:"processing_time,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
-	TotalTime      float64                   `protobuf:"fixed64,7,opt,name=total_time,json=totalTime,proto3" json:"total_time,omitempty"`
-	Notification   *SendNotificationResponse `protobuf:"bytes,8,opt,name=notification,proto3" json:"notification,omitempty"`
-	Status         string                    `protobuf:"bytes,9,opt,name=status,proto3" json:"status,omitempty"`
-	SpamCheck      *SpamCheck                `protobuf:"bytes,10,opt,name=spam_check,json=spamCheck,proto3" json:"spam_check,omitempty"`
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CallId         string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	Transcript     *Transcript            `protobuf:"bytes,2,opt,name=transcript,proto3" json:"transcript,omitempty"`
+	Routing        *Routing               `protobuf:"bytes,3,opt,name=routing,proto3" json:"routing,omitempty"`
+	Entities       *Entities              `protobuf:"bytes,4,opt,name=entities,proto3" json:"entities,omitempty"`
+	Ticket         *TicketCreated         `protobuf:"bytes,5,opt,name=ticket,proto3" json:"ticket,omitempty"`
+	ProcessingTime map[string]float64     `protobuf:"bytes,6,rep,name=processing_time,json=processingTime,proto3" json:"processing_time,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
+	TotalTime      float64                `protobuf:"fixed64,7,opt,name=total_time,json=totalTime,proto3" json:"total_time,omitempty"`
+	Status         string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	SpamCheck      *SpamCheck             `protobuf:"bytes,9,opt,name=spam_check,json=spamCheck,proto3" json:"spam_check,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProcessCallResponse) Reset() {
 	*x = ProcessCallResponse{}
-	mi := &file_call_processing_proto_msgTypes[19]
+	mi := &file_call_processing_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1076,7 @@ func (x *ProcessCallResponse) String() string {
 func (*ProcessCallResponse) ProtoMessage() {}
 
 func (x *ProcessCallResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_call_processing_proto_msgTypes[19]
+	mi := &file_call_processing_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1089,7 @@ func (x *ProcessCallResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessCallResponse.ProtoReflect.Descriptor instead.
 func (*ProcessCallResponse) Descriptor() ([]byte, []int) {
-	return file_call_processing_proto_rawDescGZIP(), []int{19}
+	return file_call_processing_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ProcessCallResponse) GetCallId() string {
@@ -1336,13 +1139,6 @@ func (x *ProcessCallResponse) GetTotalTime() float64 {
 		return x.TotalTime
 	}
 	return 0
-}
-
-func (x *ProcessCallResponse) GetNotification() *SendNotificationResponse {
-	if x != nil {
-		return x.Notification
-	}
-	return nil
 }
 
 func (x *ProcessCallResponse) GetStatus() string {
@@ -1451,23 +1247,7 @@ const file_call_processing_proto_rawDesc = "" +
 	"\x12ProcessCallRequest\x12\x14\n" +
 	"\x05audio\x18\x01 \x01(\fR\x05audio\x12\x1a\n" +
 	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x17\n" +
-	"\acall_id\x18\x03 \x01(\tR\x06callId\"{\n" +
-	"\x13NotificationChannel\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
-	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\x12 \n" +
-	"\vdestination\x18\x04 \x01(\tR\vdestination\"\x9a\x02\n" +
-	"\x17SendNotificationRequest\x12\x17\n" +
-	"\acall_id\x18\x01 \x01(\tR\x06callId\x12=\n" +
-	"\n" +
-	"transcript\x18\x02 \x01(\v2\x1d.callprocessing.v1.TranscriptR\n" +
-	"transcript\x124\n" +
-	"\arouting\x18\x03 \x01(\v2\x1a.callprocessing.v1.RoutingR\arouting\x127\n" +
-	"\bentities\x18\x04 \x01(\v2\x1b.callprocessing.v1.EntitiesR\bentities\x128\n" +
-	"\x06ticket\x18\x05 \x01(\v2 .callprocessing.v1.TicketCreatedR\x06ticket\"v\n" +
-	"\x18SendNotificationResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12@\n" +
-	"\aresults\x18\x02 \x03(\v2&.callprocessing.v1.NotificationChannelR\aresults\"\x83\x05\n" +
+	"\acall_id\x18\x03 \x01(\tR\x06callId\"\xb2\x04\n" +
 	"\x13ProcessCallResponse\x12\x17\n" +
 	"\acall_id\x18\x01 \x01(\tR\x06callId\x12=\n" +
 	"\n" +
@@ -1478,12 +1258,10 @@ const file_call_processing_proto_rawDesc = "" +
 	"\x06ticket\x18\x05 \x01(\v2 .callprocessing.v1.TicketCreatedR\x06ticket\x12c\n" +
 	"\x0fprocessing_time\x18\x06 \x03(\v2:.callprocessing.v1.ProcessCallResponse.ProcessingTimeEntryR\x0eprocessingTime\x12\x1d\n" +
 	"\n" +
-	"total_time\x18\a \x01(\x01R\ttotalTime\x12O\n" +
-	"\fnotification\x18\b \x01(\v2+.callprocessing.v1.SendNotificationResponseR\fnotification\x12\x16\n" +
-	"\x06status\x18\t \x01(\tR\x06status\x12;\n" +
+	"total_time\x18\a \x01(\x01R\ttotalTime\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12;\n" +
 	"\n" +
-	"spam_check\x18\n" +
-	" \x01(\v2\x1c.callprocessing.v1.SpamCheckR\tspamCheck\x1aA\n" +
+	"spam_check\x18\t \x01(\v2\x1c.callprocessing.v1.SpamCheckR\tspamCheck\x1aA\n" +
 	"\x13ProcessingTimeEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x012q\n" +
@@ -1497,9 +1275,7 @@ const file_call_processing_proto_rawDesc = "" +
 	"\rTicketService\x12_\n" +
 	"\fCreateTicket\x12&.callprocessing.v1.CreateTicketRequest\x1a'.callprocessing.v1.CreateTicketResponse2s\n" +
 	"\x13OrchestratorService\x12\\\n" +
-	"\vProcessCall\x12%.callprocessing.v1.ProcessCallRequest\x1a&.callprocessing.v1.ProcessCallResponse2\x82\x01\n" +
-	"\x13NotificationService\x12k\n" +
-	"\x10SendNotification\x12*.callprocessing.v1.SendNotificationRequest\x1a+.callprocessing.v1.SendNotificationResponseB$Z\"callprocessing/v1;callprocessingv1b\x06proto3"
+	"\vProcessCall\x12%.callprocessing.v1.ProcessCallRequest\x1a&.callprocessing.v1.ProcessCallResponseB$Z\"callprocessing/v1;callprocessingv1b\x06proto3"
 
 var (
 	file_call_processing_proto_rawDescOnce sync.Once
@@ -1513,37 +1289,34 @@ func file_call_processing_proto_rawDescGZIP() []byte {
 	return file_call_processing_proto_rawDescData
 }
 
-var file_call_processing_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_call_processing_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_call_processing_proto_goTypes = []any{
-	(*Segment)(nil),                  // 0: callprocessing.v1.Segment
-	(*Transcript)(nil),               // 1: callprocessing.v1.Transcript
-	(*Routing)(nil),                  // 2: callprocessing.v1.Routing
-	(*SpamCheck)(nil),                // 3: callprocessing.v1.SpamCheck
-	(*ExtractedEntity)(nil),          // 4: callprocessing.v1.ExtractedEntity
-	(*Entities)(nil),                 // 5: callprocessing.v1.Entities
-	(*TicketCreated)(nil),            // 6: callprocessing.v1.TicketCreated
-	(*TranscribeRequest)(nil),        // 7: callprocessing.v1.TranscribeRequest
-	(*TranscribeResponse)(nil),       // 8: callprocessing.v1.TranscribeResponse
-	(*RouteRequest)(nil),             // 9: callprocessing.v1.RouteRequest
-	(*RouteResponse)(nil),            // 10: callprocessing.v1.RouteResponse
-	(*ExtractEntitiesRequest)(nil),   // 11: callprocessing.v1.ExtractEntitiesRequest
-	(*ExtractEntitiesResponse)(nil),  // 12: callprocessing.v1.ExtractEntitiesResponse
-	(*CreateTicketRequest)(nil),      // 13: callprocessing.v1.CreateTicketRequest
-	(*CreateTicketResponse)(nil),     // 14: callprocessing.v1.CreateTicketResponse
-	(*ProcessCallRequest)(nil),       // 15: callprocessing.v1.ProcessCallRequest
-	(*NotificationChannel)(nil),      // 16: callprocessing.v1.NotificationChannel
-	(*SendNotificationRequest)(nil),  // 17: callprocessing.v1.SendNotificationRequest
-	(*SendNotificationResponse)(nil), // 18: callprocessing.v1.SendNotificationResponse
-	(*ProcessCallResponse)(nil),      // 19: callprocessing.v1.ProcessCallResponse
-	nil,                              // 20: callprocessing.v1.Transcript.RoleMappingEntry
-	nil,                              // 21: callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry
-	(*structpb.Struct)(nil),          // 22: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil),    // 23: google.protobuf.Timestamp
+	(*Segment)(nil),                 // 0: callprocessing.v1.Segment
+	(*Transcript)(nil),              // 1: callprocessing.v1.Transcript
+	(*Routing)(nil),                 // 2: callprocessing.v1.Routing
+	(*SpamCheck)(nil),               // 3: callprocessing.v1.SpamCheck
+	(*ExtractedEntity)(nil),         // 4: callprocessing.v1.ExtractedEntity
+	(*Entities)(nil),                // 5: callprocessing.v1.Entities
+	(*TicketCreated)(nil),           // 6: callprocessing.v1.TicketCreated
+	(*TranscribeRequest)(nil),       // 7: callprocessing.v1.TranscribeRequest
+	(*TranscribeResponse)(nil),      // 8: callprocessing.v1.TranscribeResponse
+	(*RouteRequest)(nil),            // 9: callprocessing.v1.RouteRequest
+	(*RouteResponse)(nil),           // 10: callprocessing.v1.RouteResponse
+	(*ExtractEntitiesRequest)(nil),  // 11: callprocessing.v1.ExtractEntitiesRequest
+	(*ExtractEntitiesResponse)(nil), // 12: callprocessing.v1.ExtractEntitiesResponse
+	(*CreateTicketRequest)(nil),     // 13: callprocessing.v1.CreateTicketRequest
+	(*CreateTicketResponse)(nil),    // 14: callprocessing.v1.CreateTicketResponse
+	(*ProcessCallRequest)(nil),      // 15: callprocessing.v1.ProcessCallRequest
+	(*ProcessCallResponse)(nil),     // 16: callprocessing.v1.ProcessCallResponse
+	nil,                             // 17: callprocessing.v1.Transcript.RoleMappingEntry
+	nil,                             // 18: callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry
+	(*structpb.Struct)(nil),         // 19: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),   // 20: google.protobuf.Timestamp
 }
 var file_call_processing_proto_depIdxs = []int32{
 	0,  // 0: callprocessing.v1.Transcript.segments:type_name -> callprocessing.v1.Segment
-	20, // 1: callprocessing.v1.Transcript.role_mapping:type_name -> callprocessing.v1.Transcript.RoleMappingEntry
-	22, // 2: callprocessing.v1.Transcript.metadata:type_name -> google.protobuf.Struct
+	17, // 1: callprocessing.v1.Transcript.role_mapping:type_name -> callprocessing.v1.Transcript.RoleMappingEntry
+	19, // 2: callprocessing.v1.Transcript.metadata:type_name -> google.protobuf.Struct
 	3,  // 3: callprocessing.v1.Routing.spam_check:type_name -> callprocessing.v1.SpamCheck
 	4,  // 4: callprocessing.v1.Entities.persons:type_name -> callprocessing.v1.ExtractedEntity
 	4,  // 5: callprocessing.v1.Entities.phones:type_name -> callprocessing.v1.ExtractedEntity
@@ -1552,7 +1325,7 @@ var file_call_processing_proto_depIdxs = []int32{
 	4,  // 8: callprocessing.v1.Entities.account_ids:type_name -> callprocessing.v1.ExtractedEntity
 	4,  // 9: callprocessing.v1.Entities.money_amounts:type_name -> callprocessing.v1.ExtractedEntity
 	4,  // 10: callprocessing.v1.Entities.dates:type_name -> callprocessing.v1.ExtractedEntity
-	23, // 11: callprocessing.v1.TicketCreated.created_at:type_name -> google.protobuf.Timestamp
+	20, // 11: callprocessing.v1.TicketCreated.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 12: callprocessing.v1.TranscribeResponse.transcript:type_name -> callprocessing.v1.Transcript
 	0,  // 13: callprocessing.v1.RouteRequest.segments:type_name -> callprocessing.v1.Segment
 	2,  // 14: callprocessing.v1.RouteResponse.routing:type_name -> callprocessing.v1.Routing
@@ -1562,35 +1335,27 @@ var file_call_processing_proto_depIdxs = []int32{
 	2,  // 18: callprocessing.v1.CreateTicketRequest.routing:type_name -> callprocessing.v1.Routing
 	5,  // 19: callprocessing.v1.CreateTicketRequest.entities:type_name -> callprocessing.v1.Entities
 	6,  // 20: callprocessing.v1.CreateTicketResponse.ticket:type_name -> callprocessing.v1.TicketCreated
-	1,  // 21: callprocessing.v1.SendNotificationRequest.transcript:type_name -> callprocessing.v1.Transcript
-	2,  // 22: callprocessing.v1.SendNotificationRequest.routing:type_name -> callprocessing.v1.Routing
-	5,  // 23: callprocessing.v1.SendNotificationRequest.entities:type_name -> callprocessing.v1.Entities
-	6,  // 24: callprocessing.v1.SendNotificationRequest.ticket:type_name -> callprocessing.v1.TicketCreated
-	16, // 25: callprocessing.v1.SendNotificationResponse.results:type_name -> callprocessing.v1.NotificationChannel
-	1,  // 26: callprocessing.v1.ProcessCallResponse.transcript:type_name -> callprocessing.v1.Transcript
-	2,  // 27: callprocessing.v1.ProcessCallResponse.routing:type_name -> callprocessing.v1.Routing
-	5,  // 28: callprocessing.v1.ProcessCallResponse.entities:type_name -> callprocessing.v1.Entities
-	6,  // 29: callprocessing.v1.ProcessCallResponse.ticket:type_name -> callprocessing.v1.TicketCreated
-	21, // 30: callprocessing.v1.ProcessCallResponse.processing_time:type_name -> callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry
-	18, // 31: callprocessing.v1.ProcessCallResponse.notification:type_name -> callprocessing.v1.SendNotificationResponse
-	3,  // 32: callprocessing.v1.ProcessCallResponse.spam_check:type_name -> callprocessing.v1.SpamCheck
-	7,  // 33: callprocessing.v1.TranscriptionService.Transcribe:input_type -> callprocessing.v1.TranscribeRequest
-	9,  // 34: callprocessing.v1.RoutingService.Route:input_type -> callprocessing.v1.RouteRequest
-	11, // 35: callprocessing.v1.EntityExtractionService.ExtractEntities:input_type -> callprocessing.v1.ExtractEntitiesRequest
-	13, // 36: callprocessing.v1.TicketService.CreateTicket:input_type -> callprocessing.v1.CreateTicketRequest
-	15, // 37: callprocessing.v1.OrchestratorService.ProcessCall:input_type -> callprocessing.v1.ProcessCallRequest
-	17, // 38: callprocessing.v1.NotificationService.SendNotification:input_type -> callprocessing.v1.SendNotificationRequest
-	8,  // 39: callprocessing.v1.TranscriptionService.Transcribe:output_type -> callprocessing.v1.TranscribeResponse
-	10, // 40: callprocessing.v1.RoutingService.Route:output_type -> callprocessing.v1.RouteResponse
-	12, // 41: callprocessing.v1.EntityExtractionService.ExtractEntities:output_type -> callprocessing.v1.ExtractEntitiesResponse
-	14, // 42: callprocessing.v1.TicketService.CreateTicket:output_type -> callprocessing.v1.CreateTicketResponse
-	19, // 43: callprocessing.v1.OrchestratorService.ProcessCall:output_type -> callprocessing.v1.ProcessCallResponse
-	18, // 44: callprocessing.v1.NotificationService.SendNotification:output_type -> callprocessing.v1.SendNotificationResponse
-	39, // [39:45] is the sub-list for method output_type
-	33, // [33:39] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	1,  // 21: callprocessing.v1.ProcessCallResponse.transcript:type_name -> callprocessing.v1.Transcript
+	2,  // 22: callprocessing.v1.ProcessCallResponse.routing:type_name -> callprocessing.v1.Routing
+	5,  // 23: callprocessing.v1.ProcessCallResponse.entities:type_name -> callprocessing.v1.Entities
+	6,  // 24: callprocessing.v1.ProcessCallResponse.ticket:type_name -> callprocessing.v1.TicketCreated
+	18, // 25: callprocessing.v1.ProcessCallResponse.processing_time:type_name -> callprocessing.v1.ProcessCallResponse.ProcessingTimeEntry
+	3,  // 26: callprocessing.v1.ProcessCallResponse.spam_check:type_name -> callprocessing.v1.SpamCheck
+	7,  // 27: callprocessing.v1.TranscriptionService.Transcribe:input_type -> callprocessing.v1.TranscribeRequest
+	9,  // 28: callprocessing.v1.RoutingService.Route:input_type -> callprocessing.v1.RouteRequest
+	11, // 29: callprocessing.v1.EntityExtractionService.ExtractEntities:input_type -> callprocessing.v1.ExtractEntitiesRequest
+	13, // 30: callprocessing.v1.TicketService.CreateTicket:input_type -> callprocessing.v1.CreateTicketRequest
+	15, // 31: callprocessing.v1.OrchestratorService.ProcessCall:input_type -> callprocessing.v1.ProcessCallRequest
+	8,  // 32: callprocessing.v1.TranscriptionService.Transcribe:output_type -> callprocessing.v1.TranscribeResponse
+	10, // 33: callprocessing.v1.RoutingService.Route:output_type -> callprocessing.v1.RouteResponse
+	12, // 34: callprocessing.v1.EntityExtractionService.ExtractEntities:output_type -> callprocessing.v1.ExtractEntitiesResponse
+	14, // 35: callprocessing.v1.TicketService.CreateTicket:output_type -> callprocessing.v1.CreateTicketResponse
+	16, // 36: callprocessing.v1.OrchestratorService.ProcessCall:output_type -> callprocessing.v1.ProcessCallResponse
+	32, // [32:37] is the sub-list for method output_type
+	27, // [27:32] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_call_processing_proto_init() }
@@ -1604,9 +1369,9 @@ func file_call_processing_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_call_processing_proto_rawDesc), len(file_call_processing_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   19,
 			NumExtensions: 0,
-			NumServices:   6,
+			NumServices:   5,
 		},
 		GoTypes:           file_call_processing_proto_goTypes,
 		DependencyIndexes: file_call_processing_proto_depIdxs,

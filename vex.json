@@ -25,8 +25,7 @@
       "justification": "vulnerable_code_not_present",
       "product_paths": [
         "services/orchestrator/go.mod",
-        "services/ticket_creation/go.mod",
-        "services/notification_sender/go.mod"
+        "services/ticket_creation/go.mod"
       ],
       "impact_statement": "The project does not import google.golang.org/grpc/authz and does not use authorization policy evaluation paths affected by the advisory.",
       "evidence": [

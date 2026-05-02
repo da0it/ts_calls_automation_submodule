@@ -9,8 +9,7 @@ python3 "${ROOT_DIR}/security_gate.py" \
   --threshold high \
   --bandit "${ROOT_DIR}/reports/sast/bandit-report.json" \
   --gosec "${ROOT_DIR}/reports/sast/gosec-orchestrator.json" \
-  --gosec "${ROOT_DIR}/reports/sast/gosec-ticket_creation.json" \
-  --gosec "${ROOT_DIR}/reports/sast/gosec-notification_sender.json" || STATUS=1
+  --gosec "${ROOT_DIR}/reports/sast/gosec-ticket_creation.json" || STATUS=1
 
 echo "[security-gate] SCA"
 python3 "${ROOT_DIR}/security_gate.py" \

@@ -184,6 +184,51 @@ func isTranscriptEmpty(transcript *clients.TranscriptionResponse) bool {
 	return len(transcript.Segments) == 0
 }
 
+func ensureTranscriptCallID(transcript *clients.TranscriptionResponse, fallback string) string {
+	if transcript == nil {
+		if fallback == "" {
+			return "unknown-call"
+		}
+		return fallback
+	}
+	if transcript.CallID == "" {
+		transcript.CallID = fallback
+	}
+	if transcript.CallID == "" {
+		transcript.CallID = "unknown-call"
+	}
+	return transcript.CallID
+}
+
+func buildProcessResult(
+	status string,
+	transcript *clients.TranscriptionResponse,
+	routing *clients.RoutingResponse,
+	entities *clients.Entities,
+	ticket *clients.TicketCreated,
+	startTime time.Time,
+	processingTime map[string]float64,
+) *ProcessCallResult {
+	return &ProcessCallResult{
+		CallID:         ensureTranscriptCallID(transcript, ""),
+		Status:         status,
+		Transcript:     transcript,
+		Routing:        routing,
+		SpamCheck:      cloneSpamCheck(spamCheckFromRouting(routing)),
+		Entities:       normalizeEntities(entities),
+		Ticket:         ticket,
+		ProcessingTime: processingTime,
+		TotalTime:      time.Since(startTime).Seconds(),
+	}
+}
+
+func spamCheckFromRouting(routing *clients.RoutingResponse) *clients.SpamCheckResponse {
+	if routing == nil {
+		return nil
+	}
+	return routing.SpamCheck
+}
+
 func (s *OrchestratorService) routeTranscript(transcript *clients.TranscriptionResponse) (*clients.RoutingResponse, error) {
 	if transcript == nil {
 		return nil, fmt.Errorf("transcript is required")
@@ -223,20 +268,9 @@ func (s *OrchestratorService) completeNonSpamCall(
 	log.Printf("✓ Ticket created in %.2fs (ID: %s, URL: %s)",
 		processingTime["ticket_creation"], ticket.TicketID, ticket.URL)
 
-	totalTime := time.Since(startTime).Seconds()
-	log.Printf("Call processing completed successfully in %.2fs", totalTime)
-
-	return &ProcessCallResult{
-		CallID:         transcript.CallID,
-		Status:         status,
-		Transcript:     transcript,
-		Routing:        routing,
-		SpamCheck:      cloneSpamCheck(routing.SpamCheck),
-		Entities:       entities,
-		Ticket:         ticket,
-		ProcessingTime: processingTime,
-		TotalTime:      totalTime,
-	}, nil
+	result := buildProcessResult(status, transcript, routing, entities, ticket, startTime, processingTime)
+	log.Printf("Call processing completed successfully in %.2fs", result.TotalTime)
+	return result, nil
 }
 
 // ProcessCall обрабатывает аудио звонка через все модули
@@ -258,16 +292,9 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 		processingTime["transcription"], len(transcript.Segments))
 
 	if isTranscriptEmpty(transcript) {
-		totalTime := time.Since(startTime).Seconds()
-		log.Printf("Call processing finished without routing: no speech/segments detected in %.2fs", totalTime)
-		return &ProcessCallResult{
-			CallID:         transcript.CallID,
-			Status:         ProcessStatusNoSpeech,
-			Transcript:     transcript,
-			Entities:       emptyEntities(),
-			ProcessingTime: processingTime,
-			TotalTime:      totalTime,
-		}, nil
+		result := buildProcessResult(ProcessStatusNoSpeech, transcript, nil, nil, nil, startTime, processingTime)
+		log.Printf("Call processing finished without routing: no speech/segments detected in %.2fs", result.TotalTime)
+		return result, nil
 	}
 
 	// 2. Маршрутизация
@@ -282,56 +309,29 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 		processingTime["routing"], routing.IntentID, routing.Priority)
 
 	if isSpamConflictReview(routing.SpamCheck) {
-		totalTime := time.Since(startTime).Seconds()
+		result := buildProcessResult(ProcessStatusAwaitingRoutingReview, transcript, routing, nil, nil, startTime, processingTime)
 		log.Printf(
 			"Call processing paused for manual routing review due to spam/non-spam conflict in %.2fs (intent=%s confidence=%.3f)",
-			totalTime,
+			result.TotalTime,
 			routing.IntentID,
 			routing.IntentConfidence,
 		)
-		return &ProcessCallResult{
-			CallID:         transcript.CallID,
-			Status:         ProcessStatusAwaitingRoutingReview,
-			Transcript:     transcript,
-			Routing:        routing,
-			SpamCheck:      cloneSpamCheck(routing.SpamCheck),
-			Entities:       emptyEntities(),
-			ProcessingTime: processingTime,
-			TotalTime:      totalTime,
-		}, nil
+		return result, nil
 	}
 	if isRoutingReviewRequired(routing, s.routingReviewConfidenceThreshold) {
-		totalTime := time.Since(startTime).Seconds()
+		result := buildProcessResult(ProcessStatusAwaitingRoutingReview, transcript, routing, nil, nil, startTime, processingTime)
 		log.Printf(
 			"Call processing paused for manual routing review in %.2fs (confidence=%.3f threshold=%.3f)",
-			totalTime,
+			result.TotalTime,
 			routing.IntentConfidence,
 			s.routingReviewConfidenceThreshold,
 		)
-		return &ProcessCallResult{
-			CallID:         transcript.CallID,
-			Status:         ProcessStatusAwaitingRoutingReview,
-			Transcript:     transcript,
-			Routing:        routing,
-			SpamCheck:      cloneSpamCheck(routing.SpamCheck),
-			Entities:       emptyEntities(),
-			ProcessingTime: processingTime,
-			TotalTime:      totalTime,
-		}, nil
+		return result, nil
 	}
 	if isSpamBlockedRouting(routing) {
-		totalTime := time.Since(startTime).Seconds()
-		log.Printf("Call classified as spam in %.2fs", totalTime)
-		return &ProcessCallResult{
-			CallID:         transcript.CallID,
-			Status:         ProcessStatusSpamBlocked,
-			Transcript:     transcript,
-			Routing:        routing,
-			SpamCheck:      cloneSpamCheck(routing.SpamCheck),
-			Entities:       emptyEntities(),
-			ProcessingTime: processingTime,
-			TotalTime:      totalTime,
-		}, nil
+		result := buildProcessResult(ProcessStatusSpamBlocked, transcript, routing, nil, nil, startTime, processingTime)
+		log.Printf("Call classified as spam in %.2fs", result.TotalTime)
+		return result, nil
 	}
 	return s.completeNonSpamCall(transcript, routing, ProcessStatusCompleted, startTime, processingTime)
 }
@@ -350,16 +350,11 @@ func (s *OrchestratorService) ContinueAfterRoutingReview(input ContinueAfterRout
 	if decision != "accepted" && decision != "rejected" {
 		return nil, fmt.Errorf("decision must be accepted or rejected")
 	}
-	if input.Transcript.CallID == "" {
-		input.Transcript.CallID = input.CallID
-	}
-	if input.Transcript.CallID == "" {
-		input.Transcript.CallID = "unknown-call"
-	}
+	callID := ensureTranscriptCallID(input.Transcript, input.CallID)
 
 	log.Printf(
 		"Completing call after manual routing review: call_id=%s decision=%s intent=%s confidence=%.3f",
-		input.Transcript.CallID,
+		callID,
 		decision,
 		input.Routing.IntentID,
 		input.Routing.IntentConfidence,
@@ -375,14 +370,9 @@ func (s *OrchestratorService) ContinueAfterSpamBlock(input ContinueAfterSpamBloc
 	if input.Transcript == nil {
 		return nil, fmt.Errorf("transcript is required")
 	}
-	if input.Transcript.CallID == "" {
-		input.Transcript.CallID = input.CallID
-	}
-	if input.Transcript.CallID == "" {
-		input.Transcript.CallID = "unknown-call"
-	}
+	callID := ensureTranscriptCallID(input.Transcript, input.CallID)
 
-	log.Printf("Continuing call after manual spam override: call_id=%s", input.Transcript.CallID)
+	log.Printf("Continuing call after manual spam override: call_id=%s", callID)
 
 	stepStart := time.Now()
 	routing, err := s.routeTranscript(input.Transcript)
@@ -398,23 +388,14 @@ func (s *OrchestratorService) ContinueAfterSpamBlock(input ContinueAfterSpamBloc
 		processingTime["routing"], routing.IntentID, routing.Priority)
 
 	if isRoutingReviewRequired(routing, s.routingReviewConfidenceThreshold) {
-		totalTime := time.Since(startTime).Seconds()
+		result := buildProcessResult(ProcessStatusAwaitingRoutingReview, input.Transcript, routing, nil, nil, startTime, processingTime)
 		log.Printf(
 			"Call moved to routing review after spam override in %.2fs (confidence=%.3f threshold=%.3f)",
-			totalTime,
+			result.TotalTime,
 			routing.IntentConfidence,
 			s.routingReviewConfidenceThreshold,
 		)
-		return &ProcessCallResult{
-			CallID:         input.Transcript.CallID,
-			Status:         ProcessStatusAwaitingRoutingReview,
-			Transcript:     input.Transcript,
-			Routing:        routing,
-			SpamCheck:      cloneSpamCheck(routing.SpamCheck),
-			Entities:       emptyEntities(),
-			ProcessingTime: processingTime,
-			TotalTime:      totalTime,
-		}, nil
+		return result, nil
 	}
 
 	return s.completeNonSpamCall(input.Transcript, routing, ProcessStatusCompleted, startTime, processingTime)

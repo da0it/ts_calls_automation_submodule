@@ -40,7 +40,7 @@ jobs:
       - name: Run Bandit
         run: |
           bandit -r services scripts \
-            -x "*/grpc_gen/*,*/services/shared/proto/*,*/tests/*" \
+            -x "*/grpc_gen/*,*/tests/*" \
             -f json \
             -o reports/sast/bandit-report.json || true
 
@@ -58,15 +58,6 @@ jobs:
         run: |
           gosec -fmt=json \
             -out=../../reports/sast/gosec-ticket_creation.json \
-            -exclude-generated \
-            -exclude-dir=internal/gen \
-            ./... || true
-
-      - name: Run gosec for notification_sender
-        working-directory: services/notification_sender
-        run: |
-          gosec -fmt=json \
-            -out=../../reports/sast/gosec-notification_sender.json \
             -exclude-generated \
             -exclude-dir=internal/gen \
             ./... || true
@@ -153,8 +144,7 @@ jobs:
             --threshold medium \
             --bandit reports/sast/bandit-report.json \
             --gosec reports/sast/gosec-orchestrator.json \
-            --gosec reports/sast/gosec-ticket_creation.json \
-            --gosec reports/sast/gosec-notification_sender.json
+            --gosec reports/sast/gosec-ticket_creation.json
 
       - name: Run SCA Security Gate
         run: |
