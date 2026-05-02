@@ -50,13 +50,11 @@ class RouterSingleStageTest(unittest.TestCase):
     def _make_analyzer(self) -> RubertEmbeddingAnalyzer:
         return RubertEmbeddingAnalyzer(
             preprocess_cfg=PreprocessConfig(
-                backend="none",
                 model_text_mode="plain",
                 drop_fillers=False,
                 dedupe=False,
                 keep_timestamps=False,
                 do_tokenize=False,
-                do_lemmatize=False,
             ),
             finetuned_enabled=True,
             min_confidence=0.5,

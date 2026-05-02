@@ -63,7 +63,6 @@ def _preprocess_text(text: str, cfg: PreprocessConfig) -> Dict[str, object]:
         "canonical_text": result.canonical_text,
         "sentences": result.sentences,
         "tokens": result.tokens,
-        "lemmas": result.lemmas,
         "meta": result.meta,
     }
 
@@ -89,7 +88,6 @@ def _write_csv(path: Path, rows: Sequence[Dict[str, object]], fieldnames: Sequen
 
 def _build_config(args: argparse.Namespace) -> PreprocessConfig:
     return PreprocessConfig(
-        backend=str(args.backend or "stanza").strip().lower() or "stanza",
         model_text_mode=str(args.model_text_mode or "tokens").strip().lower() or "tokens",
         drop_fillers=not bool(args.keep_fillers),
         drop_stopwords=not bool(args.keep_stopwords),
@@ -98,9 +96,7 @@ def _build_config(args: argparse.Namespace) -> PreprocessConfig:
         max_chars=int(max(200, args.max_chars)),
         keep_timestamps=bool(args.keep_timestamps),
         do_tokenize=True,
-        do_lemmatize=bool(args.do_lemmatize),
         keep_special_tokens=not bool(args.drop_special_tokens),
-        stanza_resources_dir=str(args.stanza_resources_dir or "").strip(),
     )
 
 
@@ -119,9 +115,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text-col", default="text", help="Text column in CSV mode.")
     parser.add_argument("--output-csv", default="", help="Output CSV path. Default: <input>_preprocessed.csv")
 
-    parser.add_argument("--backend", default="stanza", choices=["stanza", "none"])
-    parser.add_argument("--model-text-mode", default="tokens", choices=["canonical", "normalized", "plain", "tokens", "lemmas"])
-    parser.add_argument("--do-lemmatize", action="store_true", help="Enable lemmatization.")
+    parser.add_argument("--model-text-mode", default="tokens", choices=["canonical", "normalized", "plain", "tokens"])
     parser.add_argument("--keep-stopwords", action="store_true", help="Keep stop words in output text.")
     parser.add_argument("--keep-fillers", action="store_true", help="Keep filler phrases like 'спасибо', 'ага', 'алло'.")
     parser.add_argument("--no-dedupe", action="store_true", help="Disable nearby duplicate sentence removal.")
@@ -129,7 +123,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keep-timestamps", action="store_true", help="Keep synthetic timestamps in canonical text.")
     parser.add_argument("--drop-special-tokens", action="store_true", help="Drop placeholders like <phone>, <email>.")
     parser.add_argument("--max-chars", type=int, default=4000, help="Maximum output length for canonical text.")
-    parser.add_argument("--stanza-resources-dir", default="", help="Optional Stanza resources directory.")
 
     parser.add_argument("--out-col", default="preprocessed_text", help="Output CSV column for processed model text.")
     parser.add_argument("--canonical-col", default="canonical_text", help="Output CSV column for canonical text.")
@@ -192,9 +185,8 @@ def main() -> int:
                 "canonical_col": args.canonical_col,
                 "meta_col": args.meta_col,
                 "config": {
-                    "backend": cfg.backend,
                     "model_text_mode": cfg.model_text_mode,
-                    "do_lemmatize": cfg.do_lemmatize,
+                    "do_tokenize": cfg.do_tokenize,
                     "drop_stopwords": cfg.drop_stopwords,
                     "drop_fillers": cfg.drop_fillers,
                     "dedupe": cfg.dedupe,

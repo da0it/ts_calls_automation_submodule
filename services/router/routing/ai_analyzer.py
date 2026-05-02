@@ -49,9 +49,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         finetuned_batch_size: int = 16,
         finetuned_max_length: int = 256,
         finetuned_weight_decay: float = 0.01,
-        nlp_backend: str = "stanza",
         nlp_text_mode: str = "canonical",
-        nlp_stanza_resources_dir: str = "",
         **_: Any,
     ):
         self.model_name = str(model_name).strip() or "ai-forever/ruBert-base"
@@ -60,15 +58,12 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self.max_text_chars = int(max(200, min(20000, max_text_chars)))
 
         self.preprocess_cfg = preprocess_cfg or PreprocessConfig(
-            backend=str(nlp_backend or "stanza").strip().lower() or "stanza",
             model_text_mode=str(nlp_text_mode or "canonical").strip().lower() or "canonical",
             drop_fillers=True,
             dedupe=True,
             keep_timestamps=True,
-            do_lemmatize=True,
             drop_stopwords=False,
             max_chars=self.max_text_chars,
-            stanza_resources_dir=str(nlp_stanza_resources_dir or "").strip(),
         )
 
         self.finetuned_enabled = bool(finetuned_enabled)

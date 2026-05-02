@@ -257,9 +257,7 @@ def serve() -> None:
     finetuned_batch_size = int(os.getenv("ROUTER_FINETUNED_BATCH_SIZE", "16"))
     finetuned_max_length = int(os.getenv("ROUTER_FINETUNED_MAX_LENGTH", "256"))
     finetuned_weight_decay = float(os.getenv("ROUTER_FINETUNED_WEIGHT_DECAY", "0.01"))
-    nlp_backend = os.getenv("ROUTER_NLP_BACKEND", "stanza").strip().lower() or "stanza"
     nlp_text_mode = os.getenv("ROUTER_NLP_TEXT_MODE", "canonical").strip().lower() or "canonical"
-    nlp_stanza_resources_dir = os.getenv("ROUTER_NLP_STANZA_DIR", "").strip()
     intents = load_intents(intents_path)
     logger.info("loaded intents config from %s (%d intents)", intents_path, len(intents))
     analyzer = RubertEmbeddingAnalyzer(
@@ -273,9 +271,7 @@ def serve() -> None:
         finetuned_batch_size=finetuned_batch_size,
         finetuned_max_length=finetuned_max_length,
         finetuned_weight_decay=finetuned_weight_decay,
-        nlp_backend=nlp_backend,
         nlp_text_mode=nlp_text_mode,
-        nlp_stanza_resources_dir=nlp_stanza_resources_dir,
     )
 
     routing_service = RoutingService(
