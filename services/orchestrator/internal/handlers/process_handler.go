@@ -23,7 +23,6 @@ type ProcessHandler struct {
 	appSettingsService     *services.AppSettingsService
 	routingConfigService   *services.RoutingConfigService
 	routingFeedbackService *services.RoutingFeedbackService
-	spamFeedbackService    *services.SpamFeedbackService
 	routingModelService    *services.RoutingModelService
 	auditService           *services.AuditService
 	uploadDir              string
@@ -35,7 +34,6 @@ func NewProcessHandler(
 	appSettingsService *services.AppSettingsService,
 	routingConfigService *services.RoutingConfigService,
 	routingFeedbackService *services.RoutingFeedbackService,
-	spamFeedbackService *services.SpamFeedbackService,
 	routingModelService *services.RoutingModelService,
 	auditService *services.AuditService,
 ) *ProcessHandler {
@@ -50,7 +48,6 @@ func NewProcessHandler(
 		appSettingsService:     appSettingsService,
 		routingConfigService:   routingConfigService,
 		routingFeedbackService: routingFeedbackService,
-		spamFeedbackService:    spamFeedbackService,
 		routingModelService:    routingModelService,
 		auditService:           auditService,
 		uploadDir:              uploadDir,
@@ -127,7 +124,6 @@ func (h *ProcessHandler) Root(c *gin.Context) {
 			"app_settings":     "GET /api/v1/app-settings, PUT /api/v1/app-settings (admin)",
 			"routing_config":   "GET /api/v1/routing-config",
 			"routing_feedback": "POST /api/v1/routing-feedback",
-			"spam_override":    "POST /api/v1/spam-override",
 			"routing_review":   "POST /api/v1/routing-review",
 			"routing_model":    "GET /api/v1/routing-model/status",
 			"calls_admin":      "DELETE /api/v1/calls, DELETE /api/v1/calls/:id (admin)",
@@ -137,10 +133,9 @@ func (h *ProcessHandler) Root(c *gin.Context) {
 		},
 		"pipeline": []string{
 			"1. Transcription + Diarization",
-			"2. Spam Gate (allow / block, blocked calls can be continued manually)",
-			"3. Routing (RuBERT Intent Classification + low-confidence review)",
-			"4. Entity Extraction",
-			"5. Ticket Creation",
+			"2. Routing (intent classification, spam detection, low-confidence review)",
+			"3. Entity Extraction",
+			"4. Ticket Creation",
 		},
 	})
 }

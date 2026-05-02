@@ -33,9 +33,6 @@ type Config struct {
 	RoutingFeedbackPath              string
 	RoutingAutoLearn                 bool
 	RoutingAutoLearnLimit            int
-	SpamFeedbackPath                 string
-	SpamPositiveLabel                string
-	SpamNegativeLabel                string
 	RouterAdminURL                   string
 	RouterAdminToken                 string
 	RouterAdminTimeoutSeconds        int
@@ -72,9 +69,6 @@ func Load() *Config {
 		RoutingFeedbackPath:              getEnv("ROUTING_FEEDBACK_PATH", "./data/routing_feedback.jsonl"),
 		RoutingAutoLearn:                 getEnv("ROUTING_AUTO_LEARN", "1") == "1",
 		RoutingAutoLearnLimit:            getEnvInt("ROUTING_AUTO_LEARN_LIMIT", 50),
-		SpamFeedbackPath:                 getEnv("SPAM_FEEDBACK_PATH", "./data/spam_feedback.jsonl"),
-		SpamPositiveLabel:                getEnv("SPAM_POSITIVE_LABEL", "spam"),
-		SpamNegativeLabel:                getEnv("SPAM_NEGATIVE_LABEL", "not_spam"),
 		RouterAdminURL:                   getEnv("ROUTER_ADMIN_URL", "http://localhost:8082"),
 		RouterAdminToken:                 getEnv("ROUTER_ADMIN_TOKEN", ""),
 		RouterAdminTimeoutSeconds:        getEnvInt("ROUTER_ADMIN_TIMEOUT_SECONDS", 600),
@@ -116,8 +110,6 @@ func logConfig(cfg *Config) {
 		{"Routing feedback path", cfg.RoutingFeedbackPath},
 		{"Routing auto learn", cfg.RoutingAutoLearn},
 		{"Routing auto learn limit", cfg.RoutingAutoLearnLimit},
-		{"Spam feedback path", cfg.SpamFeedbackPath},
-		{"Spam labels", cfg.SpamPositiveLabel + " / " + cfg.SpamNegativeLabel},
 		{"Router admin URL", cfg.RouterAdminURL},
 		{"Router admin timeout (sec)", cfg.RouterAdminTimeoutSeconds},
 		{"Database URL", cfg.DatabaseURL},

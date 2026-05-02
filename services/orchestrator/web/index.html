@@ -661,7 +661,6 @@
       loginBanner: null,
       authBusy: false,
       authMode: 'login',
-      spamOverrideBusy: false,
       routingReviewBusy: false,
       users: [],
       auth: {
@@ -1337,20 +1336,16 @@
       return { ticketId, externalId, url, system, createdAt };
     }
 
-    function isAwaitingSpamReview(call) {
-      return false;
-    }
-
     function isAwaitingRoutingReview(call) {
       return Boolean(call && call.status === 'awaiting_routing_review');
     }
 
     function isSpamBlockedCall(call) {
-      return Boolean(call && (call.status === 'spam_blocked' || call.status === 'awaiting_spam_review'));
+      return Boolean(call && call.status === 'spam_blocked');
     }
 
     function canReviewRouting(call) {
-      return Boolean(call) && !isAwaitingSpamReview(call) && !isSpamBlockedCall(call);
+      return Boolean(call) && !isSpamBlockedCall(call);
     }
 
     function render() {
@@ -1534,7 +1529,7 @@
 
       const spamMetaBlock = spamCheck ? `
         <section class="card">
-          <h3>Spam Gate</h3>
+          <h3>Spam Check</h3>
           <div class="meta">
             <div class="kv"><div class="k">Status</div><div class="v">${escapeHtml(spamCheck.status || '-')}</div></div>
             <div class="kv"><div class="k">Confidence</div><div class="v">${formatConfidence(spamCheck.confidence)}</div></div>
@@ -1544,15 +1539,10 @@
             <strong>Reason:</strong> ${escapeHtml(spamCheck.reason || '-')}<br />
             <strong>Predicted label:</strong> ${escapeHtml(spamCheck.predicted_label || '-')}
           </div>
-          ${isSpamBlockedCall(call) ? `
-            <div class="toolbar">
-              <button id="spam-override-btn" class="btn btn-ok" type="button" ${state.spamOverrideBusy ? 'disabled' : ''}>Continue Processing</button>
-            </div>
-          ` : ''}
         </section>
       ` : '';
 
-      if (isAwaitingSpamReview(call) || isSpamBlockedCall(call)) {
+      if (isSpamBlockedCall(call)) {
         const transcriptBlock = `
           <section class="card">
             <h3>Transcript</h3>
@@ -1568,7 +1558,6 @@
         ` : '';
 
         el.workspace.innerHTML = metaBlock + spamMetaBlock + transcriptBlock + rawBlock;
-        bindSpamOverrideActions();
         renderBanner();
         return;
       }
@@ -1856,15 +1845,6 @@
         call.review.comment = commentInput.value;
         persist();
       });
-    }
-
-    function bindSpamOverrideActions() {
-      const call = getSelectedCall();
-      if (!call || !isSpamBlockedCall(call)) return;
-
-      const button = document.getElementById('spam-override-btn');
-      if (!button) return;
-      button.addEventListener('click', () => overrideSpamBlock());
     }
 
     function bindCatalogInputs() {
@@ -2169,41 +2149,6 @@
       }
     }
 
-    async function overrideSpamBlock() {
-      const call = getSelectedCall();
-      if (!call || !isSpamBlockedCall(call)) return;
-
-      state.spamOverrideBusy = true;
-      renderActions();
-      setBanner('Continuing call after spam override...', 'ok');
-
-      try {
-        const payload = await apiJson('/api/v1/spam-override', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            queue_id: call.id || '',
-            call_id: call.callId || '',
-            source_filename: call.sourceFilename || '',
-            transcript: call.transcript || { segments: [] },
-            spam_check: call.spamCheck || {}
-          })
-        });
-        await reloadCallsAndSelect(payload && payload.queue_id || call.id);
-        const updated = getSelectedCall();
-        if (updated && updated.status === 'awaiting_routing_review') {
-          setBanner('Spam block removed. Call moved to routing review.', 'ok');
-        } else {
-          setBanner('Spam block removed. Call continued successfully.', 'ok');
-        }
-      } catch (err) {
-        setBanner(String(err.message || err), 'error');
-      } finally {
-        state.spamOverrideBusy = false;
-        renderActions();
-      }
-    }
-
     async function clearAllCalls() {
       if (!isAdmin()) {
         setBanner('Only admins can remove calls from the shared review queue.', 'error');
@@ -2361,9 +2306,6 @@
       if (!call.status) {
         call.status = 'completed';
       }
-      if (call.status === 'awaiting_spam_review') {
-        call.status = 'spam_blocked';
-      }
       call.processedAt = normalizeTimestamp(call.processedAt || (call.raw && call.raw.processed_at));
       call.ticket = normalizeTicket(call.ticket || (call.raw && call.raw.ticket));
       call.spamCheck = normalizeSpamCheck(call.spamCheck || (call.raw && call.raw.spam_check) || (call.raw && call.raw.routing && call.raw.routing.spam_check));
@@ -2402,7 +2344,7 @@
     }
 
     function renderActions() {
-      const disabled = state.processing || state.spamOverrideBusy || state.routingReviewBusy || !isAuthenticated();
+      const disabled = state.processing || state.routingReviewBusy || !isAuthenticated();
       el.logoutBtn.disabled = state.processing;
       el.processBtn.disabled = disabled;
       el.clearBtn.classList.toggle('hidden', !isAdmin());

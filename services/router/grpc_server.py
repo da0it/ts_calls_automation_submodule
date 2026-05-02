@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("router-grpc")
 
-
+# Загрузка словаря целей звонка
 def load_intents(intents_path: Path) -> Dict[str, Dict[str, Any]]:
     with intents_path.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -41,7 +41,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
-
+# Функция необходима для настройки сертификатов TLS
 def _build_grpc_server_credentials(prefix: str):
     tls_enabled = _env_bool(f"{prefix}_TLS_ENABLED", _env_bool("GRPC_TLS_ENABLED", False))
     if not tls_enabled:
@@ -62,7 +62,7 @@ def _build_grpc_server_credentials(prefix: str):
 
     return grpc.ssl_server_credentials(((key_data, cert_data),))
 
-
+# Функция формирует pb2 объект SpamCheck для передачи через gRPC в случае если словарь имеет поле spam_decision
 def _spam_check_from_analysis(raw: Dict[str, Any]) -> Optional[pb2.SpamCheck]:
     payload = raw.get("spam_decision") if isinstance(raw, dict) else {}
     if not isinstance(payload, dict):
@@ -94,6 +94,7 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
         self._lock = RLock()
         self.analyzer = analyzer
 
+# Проверка, что файл intents.json хранящий доступные цели звонка не изменился
     def _get_intents(self) -> Dict[str, Dict[str, Any]]:
         try:
             current_mtime = self.intents_path.stat().st_mtime
