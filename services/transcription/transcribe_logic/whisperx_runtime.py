@@ -1,19 +1,24 @@
+# Модуль реализует вариант транскрибации внутри текущего процесса, без запуска отдельного CLI-worker. То есть Whisper
+# импортируется напрямую, модели кэшируются в памяти, а затем используются для распознавания и выравнивания аудио.
+
 from __future__ import annotations
 
 import threading
 from typing import Any, Dict, List, Tuple
 
 from transcribe_logic.config import resolve_whisperx_device
-from transcribe_logic.whisperx_worker import (
-    _maybe_assign_diarization_speakers,
-    _to_segments,
-)
+from transcribe_logic.whisperx_helpers import maybe_assign_diarization_speakers, to_segments
 
+# Создание кэшей моделей
 _CACHE_LOCK = threading.RLock()
+
+# Кэш ASR-моделей Whisper. Ключ состоит из: model, device, compute_type, language, vad_method
 _ASR_CACHE: Dict[Tuple[str, str, str, str, str], Any] = {}
+
+# Кэш моделей выравнивания. Ключ состоит из: language_code, device
 _ALIGN_CACHE: Dict[Tuple[str, str], Tuple[Any, Any]] = {}
 
-
+# Функция импортирует библиотеку whisperx. Если импорт успешен возвращается сам модуль. Если импорт не удался - выбрасывается ошибка
 def _load_whisperx():
     try:
         import whisperx
@@ -21,7 +26,8 @@ def _load_whisperx():
         raise RuntimeError("Failed to import whisperx in runtime mode.") from exc
     return whisperx
 
-
+# Функция загружает ASR-модель WhisperX или возвращает её из кэша. Формируется ключ кэша. 
+# Например: ("large-v3", "cuda", "int8", "ru", "silero"). Если кэш содержит этот ключ, то модель возвращается из кэша
 def _get_asr_model(
     whisperx: Any,
     *,
@@ -36,6 +42,7 @@ def _get_asr_model(
     if cached is not None:
         return cached
 
+    # Параметры для загрузки модели
     kwargs: Dict[str, Any] = {
         "compute_type": compute_type,
         "language": language,
@@ -51,21 +58,27 @@ def _get_asr_model(
     _ASR_CACHE[key] = asr_model
     return asr_model
 
-
+# Функция загружает модель выравнивания WhisperX или возвращает её из кэша.
 def _get_align_model(whisperx: Any, *, language_code: str, device: str) -> Tuple[Any, Any]:
+
+    # Формирование ключа кэша
     key = (language_code, device)
     cached = _ALIGN_CACHE.get(key)
     if cached is not None:
         return cached
 
+    # Если модель в кэше не найдена, она загружается через WhisperX
     align_model, metadata = whisperx.load_align_model(
         language_code=language_code,
         device=device,
     )
+
+    # После загрузки модель и метаданные сохраняются в кэш и возвращаются
     _ALIGN_CACHE[key] = (align_model, metadata)
     return align_model, metadata
 
-
+# Функция выполняет предварительную загрузку моделей WhisperX при старте сервиса. Задача функции - заранее загрузить 
+# ASR и align модели в кэш, чтобы реальный первый запрос был обработан быстрее.
 def warmup_whisperx_runtime(
     *,
     model: str,
@@ -74,12 +87,14 @@ def warmup_whisperx_runtime(
     compute_type: str,
     vad_method: str,
 ) -> None:
-    """
-    Optional server startup warmup to keep first request latency lower.
-    """
+    
+    # Приведение устройства для работы whisperx к единому виду (ЦПУ или ГПУ)
     device = resolve_whisperx_device(device)
+
+    # Загрузка модели
     whisperx = _load_whisperx()
 
+    # Работа с кэшем выполняется под блокировкой. Это необходимо, чтобы несколько потоков не начали загружать одни и те же модели
     with _CACHE_LOCK:
         _get_asr_model(
             whisperx,
@@ -89,9 +104,13 @@ def warmup_whisperx_runtime(
             language=language,
             vad_method=vad_method,
         )
+
+        # Загрузка модели выравнивания для указанного языка
         _get_align_model(whisperx, language_code=language, device=device)
 
-
+# Главная функция runtime. Она выполняет транскрибацию аудиофайла через WhisperX внутри текущего процесса.
+# Использует кэш ASR- и align-моделей, выполняет распознавание, выравнивание,
+# опциональную диаризацию и возвращает сегменты во внутреннем формате.
 def whisperx_transcribe_inprocess(
     audio_path: str,
     *,
@@ -131,10 +150,10 @@ def whisperx_transcribe_inprocess(
             device,
             return_char_alignments=False,
         )
-        result = _maybe_assign_diarization_speakers(
+        result = maybe_assign_diarization_speakers(
             whisperx,
             result,
             audio_path=audio_path,
             device=device,
         )
-        return _to_segments(result)
+        return to_segments(result)

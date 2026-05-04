@@ -7,31 +7,36 @@ from typing import Any, Dict, List, Optional
 
 from transcribe_logic.audio_utils import to_wav_16k_mono_preprocessed
 from transcribe_logic.config import get_whisperx_settings
-from transcribe_logic.whisperx_ext import whisperx_transcribe_via_cli
 from transcribe_logic.whisperx_runtime import whisperx_transcribe_inprocess
 
-def _default_whisperx_venv_python() -> str:
-    return os.getenv(
-        "WHISPERX_VENV_PYTHON",
-        os.path.expanduser("~/whisperx_venv/bin/python"),
-    )
-
-
+# Функция приводит список сегментов к аккуратному виду. Принимает список словарей сегментов и количество цифр после запятой, которое нужно
+# сохранить при округлении. Возвращает новый список словарей с сегментами.
 def _round_segments(segments: List[Dict[str, Any]], ndigits: int = 2) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for s in segments:
+
+        # Для каждого сегмента создается копия. Исходный словарь s не изменяется напрямую
         ss = s.copy()
+        
+        # Если у сегмента есть поле start оно приводится к float и округляется до ndigits после запятой
         if "start" in ss:
             ss["start"] = round(float(ss["start"]), ndigits)
+
+        # Если у сегмента есть поле end оно приводится к float и округляется до ndigits после запятой
         if "end" in ss:
             ss["end"] = round(float(ss["end"]), ndigits)
+
+        # Если в сегменте содержится текст, он очищается и приводится к строке
         if "text" in ss and ss["text"] is not None:
             ss["text"] = str(ss["text"]).strip()
         out.append(ss)
+
+    # Сортировка итоговых сегментов по времени начала и по времени конца.
     out.sort(key=lambda x: (x.get("start", 0.0), x.get("end", 0.0)))
     return out
 
-
+# Функция _normalize_speaker_label очищает и нормализует метку говорящего,
+# преобразуя технические обозначения вроде SPEAKER_00 в вид Speaker 1.
 def _normalize_speaker_label(raw_speaker: Any) -> Optional[str]:
     speaker = str(raw_speaker or "").strip()
     if not speaker or speaker.upper() == "UNKNOWN":
@@ -46,49 +51,43 @@ def _normalize_speaker_label(raw_speaker: Any) -> Optional[str]:
 
     return speaker
 
-
+# Функция проходит по сегментам и приводит поле speaker к нормальному виду
 def _attach_basic_diarization(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    # Пересобираются все сегменты. Берётся исходная speaker-метка и нормализуется.
     for segment in segments:
         normalized_speaker = _normalize_speaker_label(segment.get("speaker"))
         segment["speaker"] = normalized_speaker or ""
         segment.pop("role", None)
     return segments
 
-
+# Главная функция модуля. Принимает путь к аудиофайлу, необязательный Hugging Face - токен для диаризации. 
 def transcribe_with_roles(
     audio_path: str,
     *,
     hf_token: Optional[str] = None,
-    no_stem: bool = False,
-    whisper_repo_dir: str = "",
-    whisper_venv_python: str = "",
 ) -> Dict[str, Any]:
-    del no_stem
-    del whisper_repo_dir
-
     if hf_token:
         os.environ["HF_TOKEN"] = hf_token
 
     with tempfile.TemporaryDirectory() as td:
+
+        # Формируется путь к временному WAV-файлу
         wav = os.path.join(td, "audio_mono.wav")
+
+        # Исходный аудиофайл приводится к стандартному формату:
         to_wav_16k_mono_preprocessed(audio_path, wav)
 
-        common_kwargs = get_whisperx_settings()
+        # Запускается транскрибация через WhisperX runtime. get_whisperx_settings возвращает словарь настроек, ** распаковывает его
+        # в именованные аргументы.
+        segments = whisperx_transcribe_inprocess(wav, **get_whisperx_settings())
 
-        persistent = os.getenv("WHISPERX_PERSISTENT", "1").strip().lower() in {"1", "true", "yes", "on"}
-        if persistent:
-            segments = whisperx_transcribe_inprocess(wav, **common_kwargs)
-            mode = "whisperx_persistent"
-        else:
-            venv_python = whisper_venv_python or _default_whisperx_venv_python()
-            segments = whisperx_transcribe_via_cli(
-                wav,
-                venv_python=venv_python,
-            )
-            mode = "whisperx_cli"
+        # Фиксация режима работы
+        mode = "whisperx_runtime"
 
         note = f"ASR backend whisperx ({mode}): mono 16k -> whisperx transcribe+align."
 
+        # Если WhisperX не вернул сегменты, функция возвращает пустой результат
         if not segments:
             return {
                 "mode": mode,
@@ -97,6 +96,7 @@ def transcribe_with_roles(
                 "note": "Backend returned no segments.",
             }
 
+        # Нормализация speaker-меток и временных меток
         segments = _attach_basic_diarization(segments)
         segments = _round_segments(segments, ndigits=2)
         has_speaker_labels = any(str(segment.get("speaker") or "").strip() for segment in segments)
@@ -105,6 +105,7 @@ def transcribe_with_roles(
         else:
             note += " No speaker labels were produced by the backend."
 
+        # Итоговый словарь с результатами транскрибации
         return {
             "mode": mode,
             "input": os.path.basename(audio_path),

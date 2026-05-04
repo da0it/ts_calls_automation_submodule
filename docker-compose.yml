@@ -48,7 +48,6 @@ services:
       WHISPERX_MAX_SPEAKERS: "2"
       GRPC_HOST: 0.0.0.0
       TRANSCRIPTION_GRPC_PORT: 50051
-      WHISPERX_VENV_PYTHON: /opt/whisperx_venv/bin/python
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       FFMPEG_BIN: ffmpeg
