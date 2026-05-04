@@ -7,24 +7,34 @@ import (
     "fmt"
     "time"
     
+    // используется для генерации внутреннего идентификатора тикета:
     "github.com/google/uuid"
+
+    // импортирует модели данных сервиса: TicketDraft, TicketCreated, TicketRecord и другие.
     "ticket_module/internal/models"
 )
 
+// Слой доступа к данным. Он хранит ссылку на объект Database, внутри которого находится подключение к PostgreSQL.
 type TicketRepository struct {
     db *Database
 }
 
+// Конструктор репозитория. Принимает готовое подключение к базе и возвращает новый репозиторий
 func NewTicketRepository(db *Database) *TicketRepository {
     return &TicketRepository{db: db}
 }
 
-// CreateTicket создает новую запись о тикете в БД
+// CreateTicket создает новую запись о тикете в БД. Принимает черновик тикета, то есть данные, которые нужно сохранить;
+// результат создания тикета во внешней системе. Возвращает только ошибку. Если всё успешно, ошибка будет nil.
 func (r *TicketRepository) CreateTicket(draft *models.TicketDraft, created *models.TicketCreated) error {
+
+    // Генерация внутреннего идентификатора тикета.
     ticketID := uuid.New().String()
     
     // Сериализуем entities в JSON
     entitiesJSON := "{}"
+
+    // В БД поле entities_json хранит сущности как JSON-строку.
     if draft.Entities != nil {
         data, err := json.Marshal(draft.Entities)
         if err != nil {
@@ -33,6 +43,7 @@ func (r *TicketRepository) CreateTicket(draft *models.TicketDraft, created *mode
         entitiesJSON = string(data)
     }
     
+    // SQL-запрос для добавления записи в таблицу tickets
     query := `
         INSERT INTO tickets (
             ticket_id, external_id, call_id,
@@ -50,9 +61,11 @@ func (r *TicketRepository) CreateTicket(draft *models.TicketDraft, created *mode
         RETURNING id, created_at, updated_at
     `
     
+    // Переменные, куда будут считаны значения из RETURNING.
     var id int64
     var createdAt, updatedAt time.Time
     
+    // Выполнение запроса
     err := r.db.DB.QueryRow(
         query,
         ticketID,
@@ -61,7 +74,9 @@ func (r *TicketRepository) CreateTicket(draft *models.TicketDraft, created *mode
         draft.Title,
         draft.Description,
         draft.Priority,
-        "open", // default status
+
+        // Новый тикет создаётся со статусом open.
+        "open",
         draft.AssigneeType,
         draft.AssigneeID,
         draft.IntentID,
@@ -69,19 +84,20 @@ func (r *TicketRepository) CreateTicket(draft *models.TicketDraft, created *mode
         entitiesJSON,
         created.URL,
         created.System,
-    ).Scan(&id, &createdAt, &updatedAt)
+    ).Scan(&id, &createdAt, &updatedAt) // Результат RETURNING записывается в переменные.
     
     if err != nil {
         return fmt.Errorf("insert ticket: %w", err)
     }
     
+    // После успешной вставки метод дополняет объект created
     created.TicketID = ticketID
     created.CreatedAt = createdAt
     
     return nil
 }
 
-// GetTicket получает тикет по ticket_id
+// GetTicket получает тикет по внутреннему ticket_id
 func (r *TicketRepository) GetTicket(ticketID string) (*models.TicketRecord, error) {
     query := `
         SELECT 
@@ -95,6 +111,7 @@ func (r *TicketRepository) GetTicket(ticketID string) (*models.TicketRecord, err
         WHERE ticket_id = $1
     `
     
+    // sqlx.Get выполняет запрос и сразу заполняет структуру TicketRecord.
     var record models.TicketRecord
     err := r.db.DB.Get(&record, query, ticketID)
     if err != nil {
@@ -109,6 +126,8 @@ func (r *TicketRepository) GetTicket(ticketID string) (*models.TicketRecord, err
 
 // GetTicketByCallID получает тикет по call_id
 func (r *TicketRepository) GetTicketByCallID(callID string) (*models.TicketRecord, error) {
+
+    // Ищутся все тикеты с указанным call_id, сортируются по времени создания от новых к старым, и берётся только один — самый свежий.
     query := `
         SELECT 
             id, ticket_id, external_id, call_id,
@@ -135,7 +154,7 @@ func (r *TicketRepository) GetTicketByCallID(callID string) (*models.TicketRecor
     return &record, nil
 }
 
-// ListTickets получает список тикетов с фильтрацией
+// ListTickets получает список тикетов с фильтрацией и пагинацией
 func (r *TicketRepository) ListTickets(filters map[string]interface{}, limit, offset int) ([]models.TicketRecord, error) {
     query := `
         SELECT 
@@ -152,7 +171,8 @@ func (r *TicketRepository) ListTickets(filters map[string]interface{}, limit, of
     args := []interface{}{}
     argIdx := 1
     
-    // Добавляем фильтры
+    // Добавление фильтров
+    // Если в filters есть непустой строковый status, к запросу добавляется условие: AND status = $%d
     if status, ok := filters["status"].(string); ok && status != "" {
         query += fmt.Sprintf(" AND status = $%d", argIdx)
         args = append(args, status)
@@ -182,11 +202,13 @@ func (r *TicketRepository) ListTickets(filters map[string]interface{}, limit, of
         return nil, fmt.Errorf("query tickets: %w", err)
     }
     
+    // Возвращается список тикетов
     return records, nil
 }
 
-// UpdateTicketStatus обновляет статус тикета
+// UpdateTicketStatus обновляет статус тикета. Принимает внутренний ID тикета и новый статус
 func (r *TicketRepository) UpdateTicketStatus(ticketID, status string) error {
+    // SQL-запрос обновляет статус и время обновления
     query := `
         UPDATE tickets
         SET status = $1, updated_at = NOW()
@@ -207,11 +229,14 @@ func (r *TicketRepository) UpdateTicketStatus(ticketID, status string) error {
         return fmt.Errorf("ticket not found")
     }
     
+    // Если все успешно, возвращается nil
     return nil
 }
 
 // GetTicketStats получает статистику по тикетам
 func (r *TicketRepository) GetTicketStats() (map[string]interface{}, error) {
+    // Этот запрос считает: всего тикетов; сколько открытых; сколько в работе; сколько решённых; сколько закрытых; 
+    // сколько с высоким приоритетом; сколько с критическим приоритетом.
     query := `
         SELECT 
             COUNT(*) as total,
@@ -224,6 +249,7 @@ func (r *TicketRepository) GetTicketStats() (map[string]interface{}, error) {
         FROM tickets
     `
     
+    // Создаётся локальная структура для результата SQL-запроса
     var stats struct {
         Total            int `db:"total"`
         Open             int `db:"open"`
@@ -234,11 +260,13 @@ func (r *TicketRepository) GetTicketStats() (map[string]interface{}, error) {
         CriticalPriority int `db:"critical_priority"`
     }
     
+    // sqlx.Get выполняет запрос и заполняет структуру stats
     err := r.db.DB.Get(&stats, query)
     if err != nil {
         return nil, fmt.Errorf("query stats: %w", err)
     }
     
+    // Результат возвращается как map
     return map[string]interface{}{
         "total":             stats.Total,
         "open":              stats.Open,
