@@ -84,6 +84,8 @@ services:
       ROUTER_GRPC_PORT: 50052
       ROUTER_INTENTS_PATH: /shared-config/routing_intents.json
       ROUTER_FEEDBACK_PATH: /shared-config/routing_feedback.jsonl
+      ROUTER_BASE_DATASET_PATH: ""
+      ROUTER_INCLUDE_INTENT_EXAMPLES: "1"
       ROUTER_TUNED_MODEL_PATH: /shared-config/router_finetuned_model/router_tuned_head.pt
       ROUTER_ADMIN_PORT: 8082
       ROUTER_MODEL_NAME: ai-forever/ruRoberta-large

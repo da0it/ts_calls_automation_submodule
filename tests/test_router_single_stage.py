@@ -12,14 +12,14 @@ if str(ROUTER_DIR) not in sys.path:
 try:
     import torch
 
-    from routing.ai_analyzer import RubertEmbeddingAnalyzer
+    from routing.ai_analyzer import CallIntentAnalyzer
     from routing.models import CallInput, Segment
     from routing.nlp_preprocess import PreprocessConfig
 
     _ROUTER_TESTS_AVAILABLE = True
 except Exception:
     torch = None
-    RubertEmbeddingAnalyzer = None
+    CallIntentAnalyzer = None
     CallInput = None
     Segment = None
     PreprocessConfig = None
@@ -47,8 +47,8 @@ class _FakeFinetunedRouter:
 
 @unittest.skipUnless(_ROUTER_TESTS_AVAILABLE, "router ML dependencies are not installed")
 class RouterSingleStageTest(unittest.TestCase):
-    def _make_analyzer(self) -> RubertEmbeddingAnalyzer:
-        return RubertEmbeddingAnalyzer(
+    def _make_analyzer(self) -> CallIntentAnalyzer:
+        return CallIntentAnalyzer(
             preprocess_cfg=PreprocessConfig(
                 model_text_mode="plain",
                 drop_fillers=False,

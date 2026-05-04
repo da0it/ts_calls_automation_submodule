@@ -16,7 +16,7 @@ import grpc
 sys.path.insert(0, str(Path(__file__).resolve().parent / "grpc_gen"))
 import grpc_gen.call_processing_pb2 as pb2
 import grpc_gen.call_processing_pb2_grpc as pb2_grpc
-from routing.ai_analyzer import RubertEmbeddingAnalyzer
+from routing.ai_analyzer import CallIntentAnalyzer
 from routing.models import CallInput, Segment
 
 
@@ -34,7 +34,7 @@ def load_intents(intents_path: Path) -> Dict[str, Dict[str, Any]]:
         raise ValueError("intents payload must be a JSON object")
     return payload
 
-
+# Функция приводит поступающие значения к boolean-виду. Принимает строку. Возвращает boolean-значение.
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -80,13 +80,13 @@ def _spam_check_from_analysis(raw: Dict[str, Any]) -> Optional[pb2.SpamCheck]:
         backend=str(payload.get("backend") or ""),
     )
 
-
+# Реализация gRPC-сервиса маршрутизации. Класс наследуется от pb2_grpc.RoutingServiceServicer
 class RoutingService(pb2_grpc.RoutingServiceServicer):
     def __init__(
         self,
         intents_path: Path,
         intents: Dict[str, Dict[str, Any]],
-        analyzer: RubertEmbeddingAnalyzer,
+        analyzer: CallIntentAnalyzer,
     ) -> None:
         self.intents_path = intents_path
         self.intents = intents
@@ -94,7 +94,7 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
         self._lock = RLock()
         self.analyzer = analyzer
 
-# Проверка, что файл intents.json хранящий доступные цели звонка не изменился
+# Проверка, что файл intents.json хранящий доступные цели звонка не изменился. Возвращает цели звонка
     def _get_intents(self) -> Dict[str, Dict[str, Any]]:
         try:
             current_mtime = self.intents_path.stat().st_mtime
@@ -115,7 +115,8 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
             self._intents_mtime = current_mtime
             logger.info("reloaded intents config from %s (%d intents)", self.intents_path, len(self.intents))
             return self.intents
-
+# Основная функция класса, принимает на вход gRPC объект с данными и контекст. Возвращает protobuf сообщение
+# ответ
     def Route(self, request: pb2.RouteRequest, context: grpc.ServicerContext) -> pb2.RouteResponse:
         if len(request.segments) == 0:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -169,12 +170,13 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
                 routing=pb2.Routing(**routing_payload)
             )
             return response
+        
         except Exception as exc:
             logger.exception("routing failed")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"routing failed: {exc}")
             return pb2.RouteResponse()
-
+# Возвращает статус модели для админа
     def get_model_status(self) -> Dict[str, Any]:
         intents = self._get_intents()
         tuned_status = self.analyzer.get_training_status(intents)
@@ -185,7 +187,8 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
             "tuned_model": tuned_status,
         }
 
-
+# Функция формирует и отправляет HTTP-ответ в формате JSON. Принимает на вход http-обработчик handler, код статуса и
+# словарь payload. После чего отправляет клиенту ответ в формате JSON. Ничего не возврашает
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
@@ -194,9 +197,11 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[s
     handler.end_headers()
     handler.wfile.write(body)
 
-
+# Функция - фабрика, принимает объект типа Service и админский токен, возвращает класс админского обработчика 
+# HTTP-запросов (создает HTTP-сервер)
 def make_admin_handler(service: RoutingService, admin_token: str):
     class RouterAdminHandler(BaseHTTPRequestHandler):
+        # Обрабокта GET-запросов
         def do_GET(self) -> None:
             if not self._authorize():
                 return
@@ -207,12 +212,14 @@ def make_admin_handler(service: RoutingService, admin_token: str):
 
             _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
 
+        # Обработка POST-запросов
         def do_POST(self) -> None:
             if not self._authorize():
                 return
 
             _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
 
+        # Обработка запросов для CORS-проверки
         def do_OPTIONS(self) -> None:
             self.send_response(HTTPStatus.NO_CONTENT)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -223,6 +230,7 @@ def make_admin_handler(service: RoutingService, admin_token: str):
         def log_message(self, fmt: str, *args) -> None:
             logger.info("admin %s - %s", self.address_string(), fmt % args)
 
+        # Функция проверяет, есть ли админский токен в окружении
         def _authorize(self) -> bool:
             if not admin_token:
                 return True
@@ -240,7 +248,7 @@ def make_admin_handler(service: RoutingService, admin_token: str):
 
     return RouterAdminHandler
 
-
+# Точка сборки сервиса 
 def serve() -> None:
     port = os.getenv("ROUTER_GRPC_PORT", "50052")
     model_name = os.getenv("ROUTER_MODEL_NAME", "ai-forever/ruBert-base")
@@ -253,15 +261,17 @@ def serve() -> None:
     default_finetuned_model_path = str(Path(__file__).parent / "configs" / "router_finetuned_model")
     finetuned_model_path = os.getenv("ROUTER_FINETUNED_MODEL_PATH", default_finetuned_model_path)
     tuned_model_path = os.getenv("ROUTER_TUNED_MODEL_PATH", str(Path(finetuned_model_path) / "router_tuned_head.pt"))
-    finetuned_learning_rate = float(os.getenv("ROUTER_FINETUNED_LR", "2e-5"))
-    finetuned_epochs = int(os.getenv("ROUTER_FINETUNED_EPOCHS", "3"))
+    finetuned_learning_rate = float(os.getenv("ROUTER_FINETUNED_LR", "2e-6"))
+    finetuned_epochs = int(os.getenv("ROUTER_FINETUNED_EPOCHS", "100"))
     finetuned_batch_size = int(os.getenv("ROUTER_FINETUNED_BATCH_SIZE", "16"))
-    finetuned_max_length = int(os.getenv("ROUTER_FINETUNED_MAX_LENGTH", "256"))
+    finetuned_max_length = int(os.getenv("ROUTER_FINETUNED_MAX_LENGTH", "512"))
     finetuned_weight_decay = float(os.getenv("ROUTER_FINETUNED_WEIGHT_DECAY", "0.01"))
+    base_dataset_path = os.getenv("ROUTER_BASE_DATASET_PATH", "").strip()
+    include_intent_examples = _env_bool("ROUTER_INCLUDE_INTENT_EXAMPLES", True)
     nlp_text_mode = os.getenv("ROUTER_NLP_TEXT_MODE", "canonical").strip().lower() or "canonical"
     intents = load_intents(intents_path)
     logger.info("loaded intents config from %s (%d intents)", intents_path, len(intents))
-    analyzer = RubertEmbeddingAnalyzer(
+    analyzer = CallIntentAnalyzer(
         model_name=model_name,
         min_confidence=min_confidence,
         tuned_model_path=tuned_model_path,
@@ -272,6 +282,8 @@ def serve() -> None:
         finetuned_batch_size=finetuned_batch_size,
         finetuned_max_length=finetuned_max_length,
         finetuned_weight_decay=finetuned_weight_decay,
+        base_dataset_path=base_dataset_path,
+        include_intent_examples=include_intent_examples,
         nlp_text_mode=nlp_text_mode,
     )
 

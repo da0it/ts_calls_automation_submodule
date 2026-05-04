@@ -6,11 +6,13 @@ from typing import List, Optional, Tuple, Dict, Any
 
 from razdel import sentenize, tokenize as razdel_tokenize
 
+# Список частых служебных слов, они могут удаляться при включенном параметре drop_stopwords=True в конфигурационном файле
 STOP_WORDS = {
     "и","а","но","или","да","нет","это","в","на","к","ко","по","за","для","из","у","мы","вы","он","она","они",
     "я","ты","же","бы","ли","то","вот","там","тут","еще","ещё","уже","ну","ок","ладно","понятно","спасибо"
 }
 
+# Регулярные выражения для удаления коротких бессодержательных реплик
 FILLER_PATTERNS = [
     r"^\s*(ал(е|ё)|алло)\s*[.!?]?\s*$",
     r"^\s*(да|да-да|угу|ага|мм+|мгм)\s*[.!?]?\s*$",
@@ -18,17 +20,19 @@ FILLER_PATTERNS = [
     r"^\s*(спасибо)\s*[.!?]?\s*$",
 ]
 
+# Регулярное выражение для удаления префикса Speaker при работе с диаризацией
 SPEAKER_PREFIX_RE = re.compile(r"^\s*(speaker\s*\d+\s*:\s*)", re.IGNORECASE)
 
+# Маскирование Email, чисел и телефонных номеров
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_RE = re.compile(r"(\+?\d[\d\s\-\(\)]{8,}\d)")
-
 NUM_RE = re.compile(r"\b\d+\b")
 
 WS_RE = re.compile(r"\s+")
 PUNCT_SPACES_RE = re.compile(r"\s+([,.!?;:])")
 MULTI_DOTS_RE = re.compile(r"\.{2,}")
 
+# Класс данных, отвечающий за настройки предобработки текста
 @dataclass
 class PreprocessConfig:
     model_text_mode: str = "canonical"
@@ -46,6 +50,9 @@ class PreprocessConfig:
     keep_special_tokens: bool = True
 
 
+# Класс данных для хранения результата предобработки текста.
+# canonical_text — основная нормализованная версия текста звонка;
+# model_text — текст, который фактически передается на вход модели.
 @dataclass
 class PreprocessResult:
     canonical_text: str
@@ -55,7 +62,8 @@ class PreprocessResult:
     tokens: List[str]
     meta: Dict[str, Any]
 
-
+# Функция предназначена для базовой очистки текста: убирает пробелы по краям, заменяет ё на е, приводит
+# текст к нижнему регистру и т.д.
 def normalize_text(text: str) -> str:
     t = text.strip()
     t = SPEAKER_PREFIX_RE.sub("", t)
@@ -72,7 +80,8 @@ def normalize_text(text: str) -> str:
 
     return t.strip()
 
-
+# Функция предназначена для проверки содержательности реплики. Проверка идет по предварительно определенному
+# массиву FILLER_PATTERNS
 def is_filler(text: str) -> bool:
     t = text.strip().lower()
     for pat in FILLER_PATTERNS:
@@ -80,7 +89,8 @@ def is_filler(text: str) -> bool:
             return True
     return False
 
-
+# Функция удаляет близкие повторы фраз, например, "не могу войти не могу войти" - вторая строка будет удалена.
+# Функция смотрит только на ближайшее окно, а не на весь транскрипт
 def dedupe_nearby(texts: List[str], window: int = 2) -> List[str]:
     out: List[str] = []
     recent: List[str] = []
@@ -93,11 +103,11 @@ def dedupe_nearby(texts: List[str], window: int = 2) -> List[str]:
             recent.pop(0)
     return out
 
-
+# Функция используется при ошибке в tokenize_ru
 def _fallback_tokenize(norm_text: str) -> List[str]:
     return re.findall(r"<[a-z_]+>|[a-zа-я0-9]+", norm_text, flags=re.IGNORECASE)
 
-
+# Функция используется для токенизации русского текста через библиотеку razdel
 def tokenize_ru(norm_text: str, keep_special_tokens: bool = True) -> List[str]:
     try:
         toks = [t.text for t in razdel_tokenize(norm_text)]
@@ -116,18 +126,22 @@ def tokenize_ru(norm_text: str, keep_special_tokens: bool = True) -> List[str]:
         out.append(tok)
     return out
 
-
+# Разбивает текст на предложения используя библиотечный метод razdel.sentenize. Если не получилось, возвращает
+# весь текст как одно предложение
 def split_sentences(norm_text: str) -> List[str]:
     try:
         return [s.text.strip() for s in sentenize(norm_text) if s.text.strip()]
     except Exception:
         return [norm_text] if norm_text.strip() else []
 
-
+# Функция удаляет стоп-слова из списка токенов, по умолчанию в конфиге отключено.
 def drop_stopwords(items: List[str]) -> List[str]:
     return [x for x in items if x not in STOP_WORDS]
 
-
+# Функция формирует текст для входа в модель в одном из режимов: 
+# Canonical: Возвращает текст с временными метками и строками
+# Token: Возвращает токены (слова) через пробел
+# Plain или Normalized: удаляет временные метки и собирает текст в одну строку
 def build_model_text(
     canonical_text: str,
     tokens: List[str],
@@ -143,7 +157,11 @@ def build_model_text(
         return plain_text or canonical_text
     return canonical_text
 
-
+# Главная функция предобработки.
+# Принимает сегменты звонка, выполняет фильтрацию, нормализацию и агрегацию текста,
+# формирует каноническое представление и текст для модели.
+# Дополнительно вычисляет предложения, токены и метаданные обработки.
+# Возвращает объект PreprocessResult.
 def build_canonical(
     segments: List[Tuple[float, str, Optional[str]]],
     cfg: Optional[PreprocessConfig] = None,

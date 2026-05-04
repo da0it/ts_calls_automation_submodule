@@ -14,7 +14,8 @@ from .nlp_preprocess import PreprocessConfig, build_canonical
 logger = logging.getLogger(__name__)
 RESERVED_FALLBACK_INTENT_ID = "misc.triage"
 
-
+# Родительский класс. Задает общий контракт: любой анализатор должен иметь метод Analyze, чтобы можно было изменить метод
+# классификации. Например, на классический ML алгоритм, ансамбль моделей
 class AIAnalyzer:
     def analyze(
         self,
@@ -24,13 +25,10 @@ class AIAnalyzer:
     ) -> AIAnalysis:
         raise NotImplementedError
 
-
-class RubertEmbeddingAnalyzer(AIAnalyzer):
-    """
-    Router analyzer in a single-stage "fine-tuned model only" mode.
-    If no fine-tuned model is available, routes to misc.triage.
-    Low-confidence predictions are returned as-is and can be sent to manual review upstream.
-    """
+# Анализатор целей звонка. Инкапсулирует прикладную логику анализа:
+# препроцессинг сегментов, вызов среды выполнения модели и интерпретацию
+# результата в терминах intent/priority/targets.
+class CallIntentAnalyzer(AIAnalyzer):
 
     def __init__(
         self,
@@ -40,15 +38,15 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         max_text_chars: int = 4000,
         preprocess_cfg: Optional[PreprocessConfig] = None,
         tuned_model_path: Optional[str] = None,
-        tuned_blend_alpha: float = 0.0,  # kept for backward-compatible config, unused
         finetuned_enabled: bool = False,
         finetuned_model_path: Optional[str] = None,
-        finetuned_blend_alpha: float = 1.0,  # kept for backward-compatible config, unused
-        finetuned_learning_rate: float = 2e-5,
-        finetuned_epochs: int = 3,
+        finetuned_learning_rate: float = 2e-6,
+        finetuned_epochs: int = 100,
         finetuned_batch_size: int = 16,
-        finetuned_max_length: int = 256,
+        finetuned_max_length: int = 512,
         finetuned_weight_decay: float = 0.01,
+        base_dataset_path: str = "",
+        include_intent_examples: bool = True,
         nlp_text_mode: str = "canonical",
         **_: Any,
     ):
@@ -73,6 +71,8 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         self.finetuned_batch_size = int(max(4, min(64, finetuned_batch_size)))
         self.finetuned_max_length = int(max(64, min(512, finetuned_max_length)))
         self.finetuned_weight_decay = float(max(0.0, min(0.2, finetuned_weight_decay)))
+        self.base_dataset_path = str(base_dataset_path or "").strip()
+        self.include_intent_examples = bool(include_intent_examples)
         self._finetuned_router = FinetunedRouterRuntime(
             model_name=self.model_name,
             device=self.device,
@@ -81,9 +81,10 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             finetuned_model_path=self.finetuned_model_path,
             finetuned_max_length=self.finetuned_max_length,
             finetuned_weight_decay=self.finetuned_weight_decay,
-            max_text_chars=self.max_text_chars,
         )
 
+# Главный метод класса CallIntentAnalyzer, в функции собрана основная логика
+# анализа звонка и интерпретации результата локальной модели.
     def analyze(
         self,
         call: CallInput,
@@ -92,7 +93,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
     ) -> AIAnalysis:
         started = time.time()
         prep = build_canonical([(s.start, s.text, s.role) for s in call.segments], self.preprocess_cfg)
-        text = self._extract_text_with_context(prep.model_text, self.max_text_chars)
+        text = prep.model_text
         runtime_intent_ids = self._runtime_intent_ids(allowed_intents)
 
         probs, meta = self._finetuned_router.predict(text, runtime_intent_ids)
@@ -162,25 +163,33 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
         )
         return analysis
 
+    # Метод возвращает статус дообученной модели маршрутизатора.
+    # При наличии allowed_intents формируется список актуальных классов среды исполнения
+    # и выполняется проверка совместимости модели с текущей конфигурацией классов.
+    # Если allowed_intents не передан, статус запрашивается без проверки совместимости классов.
     def get_training_status(self, allowed_intents: Optional[Dict[str, Dict]] = None) -> Dict[str, Any]:
         current_intents = self._runtime_intent_ids(allowed_intents or {}) if allowed_intents else None
         return self._finetuned_router.status(current_intents=current_intents)
 
+    # Метод запускает дообучение модели маршрутизации через внутренний компонент self._finetuned_router.
+    # Принимает текущую конфигурацию интентов и параметры обучения. Возвращает словарь с отчетом об обучении.
     def train_tuned_head(
         self,
         allowed_intents: Dict[str, Dict],
         *,
         feedback_path: str,
         output_path: str,
-        epochs: int = 3,
+        epochs: int = 100,
         batch_size: int = 16,
-        learning_rate: float = 2e-5,
+        learning_rate: float = 2e-6,
         val_ratio: float = 0.2,
         random_seed: int = 42,
     ) -> Dict[str, Any]:
         return self._finetuned_router.train(
             allowed_intents=allowed_intents,
             runtime_intent_ids=self._runtime_intent_ids(allowed_intents),
+            base_dataset_path=self.base_dataset_path,
+            include_intent_examples=self.include_intent_examples,
             feedback_path=feedback_path,
             output_path=output_path,
             epochs=int(epochs),
@@ -190,10 +199,13 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             random_seed=int(random_seed),
         )
 
+    # Функция служит для перезагрузки модели из дискового пространства. Выполняется через функцию reload_from_disk
     def reload_tuned_head_from_disk(self) -> Dict[str, Any]:
         self._finetuned_router.reload_from_disk()
         return self.get_training_status()
 
+    # Функция необходима для возврата результата с вспомогательным статусом классификации, в случае того, если модель не работает
+    # как ожидается, либо уверенность модели слишком низкая чтобы давать предсказание (Fallback)
     def _triage_result(
         self,
         *,
@@ -223,6 +235,11 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             },
         )
 
+    # Функция отвечает за формирование результата в случае, если модель смогла определить класс звонка, но уверенность оказалась
+    # ниже установленной границы. Принимает на вход информацию о сделанном предсказании, такую как: идентификатор предсказанного класса,
+    # уверенность модели, время предсказания, и другая мета-информация.
+    # Возвращает объект AIAnalysis с пометкой, что необходима
+    # ручная обработка
     def _low_confidence_result(
         self,
         *,
@@ -244,6 +261,7 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             ),
             priority=priority,
             suggested_targets=suggested_targets,
+            # Поле mode явно указывает на дальнейший режим ручной обработки
             raw={
                 "mode": "finetuned_low_confidence_review",
                 "model_version": self.model_name,
@@ -258,22 +276,20 @@ class RubertEmbeddingAnalyzer(AIAnalyzer):
             },
         )
 
-    def _extract_text_with_context(self, text: str, max_chars: int) -> str:
-        if len(text) <= max_chars:
-            return text
-        start_chars = int(max_chars * 0.6)
-        end_chars = int(max_chars * 0.4)
-        return text[:start_chars] + "\n[...]\n" + text[-end_chars:]
-
+    # Функция необходима для приведения значения приоритета к одному из допустимых вариантов. Если значение некорректное или пустое
+    # по умолчанию возвращается "medium". На вход принимает переменную любого типа. Возвращает литерал Priority
     def _normalize_priority(self, value: Any) -> Priority:
         raw = str(value or "").strip().lower()
         if raw == "normal":
             raw = "medium"
         if raw not in {"low", "medium", "high", "critical"}:
             raw = "medium"
-        return raw  # type: ignore[return-value]
+        return raw
 
+    # Функция формирует актуальный список идентификаторов интентов, которые используются в среде выполнения. Метод принимает
+    # словарь разрешенных классов и возвращает список строковых идентификаторов целей обращений
     def _runtime_intent_ids(self, allowed_intents: Dict[str, Dict[str, Any]]) -> list[str]:
+        # В этой переменной задается множество исключаемых классов, в него входит один зарезервированный класс - misc.triage
         excluded = {RESERVED_FALLBACK_INTENT_ID}
         return sorted(
             str(intent_id).strip()
