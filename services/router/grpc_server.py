@@ -25,6 +25,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("router-grpc")
+SPAM_INTENT_IDS = {"spam.call", "spam"}
 
 # Загрузка словаря целей звонка
 def load_intents(intents_path: Path) -> Dict[str, Dict[str, Any]]:
@@ -79,6 +80,21 @@ def _spam_check_from_analysis(raw: Dict[str, Any]) -> Optional[pb2.SpamCheck]:
         skipped=bool(payload.get("skipped")),
         backend=str(payload.get("backend") or ""),
     )
+
+
+def _filter_intents_for_request(
+    intents: Dict[str, Dict[str, Any]],
+    *,
+    skip_spam_gate: bool,
+) -> Dict[str, Dict[str, Any]]:
+    if not skip_spam_gate:
+        return intents
+    filtered = {
+        intent_id: meta
+        for intent_id, meta in intents.items()
+        if str(intent_id).strip().lower() not in SPAM_INTENT_IDS
+    }
+    return filtered or intents
 
 # Реализация gRPC-сервиса маршрутизации. Класс наследуется от pb2_grpc.RoutingServiceServicer
 class RoutingService(pb2_grpc.RoutingServiceServicer):
@@ -143,7 +159,10 @@ class RoutingService(pb2_grpc.RoutingServiceServicer):
 
             analysis = self.analyzer.analyze(
                 call,
-                self._get_intents(),
+                _filter_intents_for_request(
+                    self._get_intents(),
+                    skip_spam_gate=bool(request.skip_spam_gate),
+                ),
             )
 
             suggested_group = ""

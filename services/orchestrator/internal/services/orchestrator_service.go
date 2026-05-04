@@ -72,6 +72,14 @@ type ContinueAfterRoutingReviewInput struct {
 	Routing        *clients.RoutingResponse
 }
 
+type ContinueAfterSpamOverrideInput struct {
+	CallID         string
+	SourceFilename string
+	Decision       string
+	Transcript     *clients.TranscriptionResponse
+	Routing        *clients.RoutingResponse
+}
+
 func emptyEntities() *clients.Entities {
 	return &clients.Entities{
 		Persons:      []clients.ExtractedEntity{},
@@ -216,6 +224,13 @@ func (s *OrchestratorService) routeTranscript(transcript *clients.TranscriptionR
 	return s.routingClient.Route(transcript.CallID, transcript.Segments)
 }
 
+func (s *OrchestratorService) routeTranscriptSkippingSpam(transcript *clients.TranscriptionResponse) (*clients.RoutingResponse, error) {
+	if transcript == nil {
+		return nil, fmt.Errorf("transcript is required")
+	}
+	return s.routingClient.RouteSkippingSpam(transcript.CallID, transcript.Segments)
+}
+
 func (s *OrchestratorService) completeNonSpamCall(
 	transcript *clients.TranscriptionResponse,
 	routing *clients.RoutingResponse,
@@ -341,6 +356,57 @@ func (s *OrchestratorService) ContinueAfterRoutingReview(input ContinueAfterRout
 	)
 
 	return s.completeNonSpamCall(input.Transcript, input.Routing, ProcessStatusCompleted, startTime, processingTime)
+}
+
+func (s *OrchestratorService) ContinueAfterSpamOverride(input ContinueAfterSpamOverrideInput) (*ProcessCallResult, error) {
+	startTime := time.Now()
+	processingTime := make(map[string]float64)
+	decision := strings.ToLower(strings.TrimSpace(input.Decision))
+
+	if input.Transcript == nil {
+		return nil, fmt.Errorf("transcript is required")
+	}
+	if input.Routing == nil {
+		return nil, fmt.Errorf("routing is required")
+	}
+	if decision != "accepted" {
+		return nil, fmt.Errorf("spam override supports only accepted decision")
+	}
+	if !isSpamIntent(input.Routing.IntentID) {
+		return nil, fmt.Errorf("spam override requires current spam routing")
+	}
+
+	callID := ensureTranscriptCallID(input.Transcript, input.CallID)
+	log.Printf("Continuing call after spam override: call_id=%s rerouting without spam intent", callID)
+
+	stepStart := time.Now()
+	rerouted, err := s.routeTranscriptSkippingSpam(input.Transcript)
+	if err != nil {
+		return nil, fmt.Errorf("routing after spam override failed: %w", err)
+	}
+	processingTime["routing"] = time.Since(stepStart).Seconds()
+	log.Printf(
+		"✓ Routing after spam override completed in %.2fs (intent: %s, priority: %s)",
+		processingTime["routing"],
+		rerouted.IntentID,
+		rerouted.Priority,
+	)
+
+	if isRoutingReviewRequired(rerouted, s.routingReviewConfidenceThreshold) {
+		result := buildProcessResult(ProcessStatusAwaitingRoutingReview, input.Transcript, rerouted, nil, nil, startTime, processingTime)
+		log.Printf(
+			"Call processing paused for manual routing review after spam override in %.2fs (confidence=%.3f threshold=%.3f)",
+			result.TotalTime,
+			rerouted.IntentConfidence,
+			s.routingReviewConfidenceThreshold,
+		)
+		return result, nil
+	}
+	if isSpamIntent(rerouted.IntentID) {
+		return nil, fmt.Errorf("routing after spam override returned spam intent again")
+	}
+
+	return s.completeNonSpamCall(input.Transcript, rerouted, ProcessStatusCompleted, startTime, processingTime)
 }
 
 // HealthCheck проверяет доступность всех сервисов

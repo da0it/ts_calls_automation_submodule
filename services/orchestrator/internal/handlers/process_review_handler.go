@@ -11,6 +11,11 @@ import (
 	"orchestrator/internal/services"
 )
 
+const (
+	reviewSpamIntentID       = "spam.call"
+	reviewLegacySpamIntentID = "spam"
+)
+
 type reviewSpamCheckPayload struct {
 	Status         string  `json:"status"`
 	PredictedLabel string  `json:"predicted_label"`
@@ -108,6 +113,11 @@ func buildRouting(payload routingReviewRequest) *clients.RoutingResponse {
 	}
 }
 
+func isReviewSpamIntent(intentID string) bool {
+	raw := strings.ToLower(strings.TrimSpace(intentID))
+	return raw == reviewSpamIntentID || raw == reviewLegacySpamIntentID
+}
+
 func buildCompletedReview(payload routingReviewRequest) map[string]interface{} {
 	return map[string]interface{}{
 		"decision":    strings.ToLower(strings.TrimSpace(payload.Decision)),
@@ -147,6 +157,45 @@ func (h *ProcessHandler) ResolveRoutingReview(c *gin.Context) {
 
 	transcript := buildTranscript(payload.CallID, payload.Transcript)
 	routing := buildRouting(payload)
+
+	if strings.ToLower(strings.TrimSpace(payload.Decision)) == "accepted" && isReviewSpamIntent(routing.IntentID) {
+		result, err := h.orchestrator.ContinueAfterSpamOverride(services.ContinueAfterSpamOverrideInput{
+			CallID:         payload.CallID,
+			SourceFilename: payload.SourceFilename,
+			Decision:       payload.Decision,
+			Transcript:     transcript,
+			Routing:        routing,
+		})
+		if err != nil {
+			h.writeAudit(c, "call.spam_override", "call", transcript.CallID, "failed", map[string]interface{}{
+				"decision": payload.Decision,
+				"reason":   err.Error(),
+			})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		h.writeAudit(c, "call.spam_override", "call", transcript.CallID, "success", map[string]interface{}{
+			"decision": payload.Decision,
+			"status":   result.Status,
+			"intent_id": func() string {
+				if result.Routing == nil {
+					return ""
+				}
+				return result.Routing.IntentID
+			}(),
+		})
+
+		existing := h.loadExistingQueueRecord(payload.QueueID)
+		review := buildCompletedReview(payload)
+		if result.Routing != nil {
+			review["intentId"] = strings.TrimSpace(result.Routing.IntentID)
+			review["priority"] = normalizePriority(result.Routing.Priority)
+			review["group"] = strings.TrimSpace(result.Routing.SuggestedGroup)
+		}
+		h.finalizeReviewResult(c, result, payload.SourceFilename, payload.QueueID, existing, review, "spam override")
+		return
+	}
 
 	result, err := h.orchestrator.ContinueAfterRoutingReview(services.ContinueAfterRoutingReviewInput{
 		CallID:         payload.CallID,

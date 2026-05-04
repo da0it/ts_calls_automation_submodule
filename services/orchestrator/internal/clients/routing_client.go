@@ -53,6 +53,14 @@ type SpamCheckResponse struct {
 }
 
 func (c *RoutingClient) Route(callID string, segments []Segment) (*RoutingResponse, error) {
+	return c.route(callID, segments, false)
+}
+
+func (c *RoutingClient) RouteSkippingSpam(callID string, segments []Segment) (*RoutingResponse, error) {
+	return c.route(callID, segments, true)
+}
+
+func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bool) (*RoutingResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -68,8 +76,9 @@ func (c *RoutingClient) Route(callID string, segments []Segment) (*RoutingRespon
 	}
 
 	resp, err := c.client.Route(ctx, &callprocessingv1.RouteRequest{
-		CallId:   callID,
-		Segments: pbSegments,
+		CallId:       callID,
+		Segments:     pbSegments,
+		SkipSpamGate: skipSpamGate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("routing rpc: %w", err)

@@ -1348,6 +1348,10 @@
       return Boolean(call) && !isSpamBlockedCall(call);
     }
 
+    function canOverrideSpam(call) {
+      return Boolean(call) && isSpamBlockedCall(call);
+    }
+
     function render() {
       renderAuth();
       if (!isAuthenticated()) {
@@ -1543,6 +1547,17 @@
       ` : '';
 
       if (isSpamBlockedCall(call)) {
+        const overrideBlock = `
+          <section class="card">
+            <h3>Spam Override</h3>
+            <div class="help-note">
+              This call is currently blocked as spam. Use <strong>Accept AI</strong> to confirm a non-spam override.
+              The system will automatically rerun routing without the <code>spam.call</code> class and continue the pipeline.
+              If the new routing confidence is low, the call will move to manual routing review.
+            </div>
+          </section>
+        `;
+
         const transcriptBlock = `
           <section class="card">
             <h3>Transcript</h3>
@@ -1557,7 +1572,7 @@
           </section>
         ` : '';
 
-        el.workspace.innerHTML = metaBlock + spamMetaBlock + transcriptBlock + rawBlock;
+        el.workspace.innerHTML = metaBlock + spamMetaBlock + overrideBlock + transcriptBlock + rawBlock;
         renderBanner();
         return;
       }
@@ -2007,7 +2022,14 @@
 
     async function onAcceptClick() {
       const call = getSelectedCall();
-      if (!call || !canReviewRouting(call)) return;
+      if (!call) return;
+
+      if (canOverrideSpam(call)) {
+        await resolveSpamOverride();
+        return;
+      }
+
+      if (!canReviewRouting(call)) return;
 
       if (isAwaitingRoutingReview(call)) {
         applyDecisionToCall(call, 'accepted');
@@ -2141,6 +2163,35 @@
             : 'Ticket created after manual routing review.',
           'ok'
         );
+      } catch (err) {
+        setBanner(String(err.message || err), 'error');
+      } finally {
+        state.routingReviewBusy = false;
+        renderActions();
+      }
+    }
+
+    async function resolveSpamOverride() {
+      const call = getSelectedCall();
+      if (!call || !canOverrideSpam(call)) return;
+
+      state.routingReviewBusy = true;
+      renderActions();
+      setBanner('Resuming pipeline after spam override...', 'ok');
+
+      try {
+        const payload = await apiJson('/api/v1/routing-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildRoutingReviewRequest(call, 'accepted'))
+        });
+        await reloadCallsAndSelect(payload && payload.queue_id || call.id);
+        const updated = getSelectedCall();
+        if (updated && isAwaitingRoutingReview(updated)) {
+          setBanner('Spam override applied. Routing needs manual review because confidence is low.', 'ok');
+        } else {
+          setBanner('Spam override applied. Pipeline continued automatically.', 'ok');
+        }
       } catch (err) {
         setBanner(String(err.message || err), 'error');
       } finally {
@@ -2354,7 +2405,8 @@
       const call = state.activeTab === 'review' ? getSelectedCall() : null;
       const hasCall = Boolean(call);
       const canReview = Boolean(call) && canReviewRouting(call);
-      el.acceptBtn.disabled = !canReview || disabled;
+      const canAccept = Boolean(call) && (canReviewRouting(call) || canOverrideSpam(call));
+      el.acceptBtn.disabled = !canAccept || disabled;
       el.rejectBtn.disabled = !canReview || disabled;
       el.saveBtn.disabled = !canReview || disabled || !isAdmin();
       el.exportBtn.disabled = !hasCall || disabled;

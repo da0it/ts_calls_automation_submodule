@@ -2,52 +2,111 @@ syntax = "proto3";
 
 package callprocessing.v1;
 
+// Пакет Go, в который будут сгенерированы protobuf-структуры.
 option go_package = "callprocessing/v1;callprocessingv1";
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
+// Один распознанный фрагмент речи в рамках телефонного обращения.
 message Segment {
+
+  // Время начала сегмента в секундах.
   double start = 1;
+
+  // Время окончания сегмента в секундах.
   double end = 2;
+
+  // Идентификатор говорящего, если доступна диаризация.
   string speaker = 3;
+
+  // Роль участника диалога, например client/operator, если она определена.
   string role = 4;
+
+  // Распознанный текст сегмента.
   string text = 5;
 }
 
+// Результат транскрибации телефонного обращения
 message Transcript {
+
+  // Уникальный Идентификатор звонка
   string call_id = 1;
+
+  // Последовательность распознанных речевых сегментов
   repeated Segment segments = 2;
+
+  // Сопоставление технических speaker-меток с ролями участников
   map<string, string> role_mapping = 3;
+
+  // Дополнительные служебные метаданные транскрибации
   google.protobuf.Struct metadata = 4;
 }
 
+// Результат маршрутизации обращения
 message Routing {
+
+  // Идентификатор выбранной цели обращения
   string intent_id = 1;
+
+  // Уверенность модели в выбранной цели обращения
   double intent_confidence = 2;
+
+  // Приоритет обращения
   string priority = 3;
+
+  // Рекомендуемая группа исполнителей
   string suggested_group = 4;
+
+  // Результат проверки обращения на спам
   SpamCheck spam_check = 5;
 }
 
+// служебная информация о проверке обращения на спам
 message SpamCheck {
+
+  // Итоговый статус проверки
   string status = 1;
+
+  // Предсказанная метка спам или не спам
   string predicted_label = 2;
+
+  // Уверенность модели
   double confidence = 3;
+
+  // Нижний порог принятия решения
   double threshold_low = 4;
+
+  // Верхний порог принятия решения
   double threshold_high = 5;
+
+  // Причина принятого решения
   string reason = 6;
+
+  // Признак того, что проверка была пропущена
   bool skipped = 7;
+
+  // Использованная модель проверки
   string backend = 8;
 }
 
+// Одна извлеченная сущность из текста обращения
 message ExtractedEntity {
+
+  // Тип сущности (ФИО, телефон, email и др.)
   string type = 1;
+
+  // Значение сущности
   string value = 2;
+
+  // Уверенность извлечения
   double confidence = 3;
+
+  // Контекст, в котором была найдена сущность
   string context = 4;
 }
 
+// Набор сущностей, извлеченных из обращения
 message Entities {
   repeated ExtractedEntity persons = 1;
   repeated ExtractedEntity phones = 2;
@@ -58,87 +117,175 @@ message Entities {
   repeated ExtractedEntity dates = 7;
 }
 
+// Результат создания тикета во внешней тикет-системе
 message TicketCreated {
+
+  // Внутренний идентификатор созданной заявки
   string ticket_id = 1;
+
+  // Идентификатор заявки из внешней тикет-системы
   string external_id = 2;
+
+  // Ссылка на созданную заявку
   string url = 3;
+
+  // Название системы, в которой создана заявка
   string system = 4;
+
+  // Время создания заявки
   google.protobuf.Timestamp created_at = 5;
 }
 
+// Запрос на транскрибацию аудиофайла
 message TranscribeRequest {
+
+  // Аудиофайл в бинарном виде
   bytes audio = 1;
+
+  // Исходное имя файла
   string filename = 2;
+
+  // Идентификатор звонка
   string call_id = 3;
 }
 
+// Ответ сервиса транскрибации
 message TranscribeResponse {
+
+  // Распознанная транскрипция звонка
   Transcript transcript = 1;
 }
 
+// Запрос на маршрутизацию обращения
 message RouteRequest {
+
+  // Идентификатор звонка
   string call_id = 1;
+
+  // Сегменты распознанной речи
   repeated Segment segments = 2;
+
+  // Признак пропуска спам-фильтра
   bool skip_spam_gate = 3;
 }
 
+// Ответ сервиса маршрутизации
 message RouteResponse {
+
+  // Результат классификации, выбора приоритета и группы
   Routing routing = 1;
 }
 
+// Запрос на извлечение сущностей из текста обращения
 message ExtractEntitiesRequest {
+
+  // Сегменты распознанной речи
   repeated Segment segments = 1;
 }
 
+// Ответ сервиса извлечения сущностей
 message ExtractEntitiesResponse {
+
+  // Набор найденных сущностей
   Entities entities = 1;
 }
 
+// Запрос на создание заявки
 message CreateTicketRequest {
+
+  // транскрипция звонка
   Transcript transcript = 1;
+
+  // Результат маршрутизации
   Routing routing = 2;
+
+  // Извлеченные сущности
   Entities entities = 3;
+
+  // Ссылка на исходную аудиозапись
   string audio_url = 4;
 }
 
+// Ответ сервиса создания заявки
 message CreateTicketResponse {
+
+  // Информация о созданной заявке
   TicketCreated ticket = 1;
 }
 
+// Запрос на полную обработку звонка модулем управления
 message ProcessCallRequest {
+
+  // Аудиофайл в бинарном виде
   bytes audio = 1;
+
+  // Имя исходного файла
   string filename = 2;
+
+  // Идентификатор звонка
   string call_id = 3;
 }
 
+// Ответ модуля управления после прохождения всего конвейера обработки
 message ProcessCallResponse {
+
+  // Идентификатор обработанного звонка
   string call_id = 1;
+  
+  // Результат транскрибации
   Transcript transcript = 2;
+  
+  // Результат маршрутизации
   Routing routing = 3;
+  
+  // Извлеченные сущности
   Entities entities = 4;
+  
+  // Созданная заявка
   TicketCreated ticket = 5;
+  
+  // Время выполнения отдельных этапов конвейерной обработки
   map<string, double> processing_time = 6;
+  
+  // Общее время обработки звонка
   double total_time = 7;
+  
+  // Итоговый статус обработки
   string status = 8;
+  
+  // Результат проверки на спам
   SpamCheck spam_check = 9;
 }
+
 
 service TranscriptionService {
   rpc Transcribe(TranscribeRequest) returns (TranscribeResponse);
 }
 
+// Сервис распознавания речи
 service RoutingService {
+
+  // Определяет цель обращения, приоритет и рекомендуемую группу исполнителей
   rpc Route(RouteRequest) returns (RouteResponse);
 }
 
+// Сервис извлечения сущностей из текста обращения
 service EntityExtractionService {
+
+  // Извлекает ФИО, телефоны, email, даты, суммы и другие сущности
   rpc ExtractEntities(ExtractEntitiesRequest) returns (ExtractEntitiesResponse);
 }
 
+// Сервис создания заявки во внешней тикет-системе
 service TicketService {
+
+  // Создает заявку на основе транскрипции, маршрутизации и извлеченных сущностей
   rpc CreateTicket(CreateTicketRequest) returns (CreateTicketResponse);
 }
 
+// Модуль управления полным конвейером обработки звонка
 service OrchestratorService {
+
+  // Выполняет полный цикл: транскрибация, маршрутизация, извлечение сущностей и создание заявки
   rpc ProcessCall(ProcessCallRequest) returns (ProcessCallResponse);
 }
