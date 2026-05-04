@@ -1,17 +1,19 @@
 # services/entity-extraction/extractor/entity_extractor.py
 from __future__ import annotations
 
+# Модуль используется для создания регулярных выражений
 import re
 import logging
 from typing import List, Dict, Any, Optional
 
+# Импорт внутренних моделей данных:
 from .models import Entities, ExtractedEntity, Segment
 
 logger = logging.getLogger(__name__)
 
-
+# Класс отвечает за извлечение сущностей из текста звонка через DeepPavlov NER 
+# или регулярные выражения
 class EntityExtractor:
-    """Извлечение сущностей из текста диалога используя DeepPavlov NER"""
 
     def __init__(
         self,
@@ -20,10 +22,6 @@ class EntityExtractor:
         allow_download: bool = False,
         allow_install: bool = False,
     ):
-        """
-        Args:
-            use_ner: Использовать DeepPavlov NER для извлечения персон и организаций
-        """
         self.use_ner = use_ner
         self.ner_model = None
         self.mode = "regex"
@@ -49,45 +47,38 @@ class EntityExtractor:
                 )
                 self.ner_model = None
 
+    # Функция непосредственно извлекает сущности из сегментов диалога. Принимает список сегментов с полями start, end, speaker, text
+    # Возвращает объект сущности с извлеченными данными
     def extract(self, segments: List[Segment]) -> Entities:
-        """
-        Извлекает сущности из сегментов диалога
-
-        Args:
-            segments: Список сегментов с полями start, end, speaker, text
-
-        Returns:
-            Entities с извлеченными данными
-        """
         full_text = " ".join(seg.text for seg in segments if seg.text)
 
+        # Создание экземпляра класса данных сущностей
         entities = Entities()
 
-        # 1. Извлекаем персоны и организации через DeepPavlov NER
+        # Извлекаются персоны и организации через DeepPavlov NER
         if self.ner_model:
             ner_entities = self._extract_ner_entities(full_text)
             entities.persons = ner_entities.get("persons", [])
-            # Можно добавить organizations если нужно
         else:
             # Fallback: простое извлечение имен через regex
             entities.persons = self._extract_persons_regex(full_text)
         
-        # 2. Извлекаем телефоны (regex)
+        # Извлекаются телефоны через регулярные выражения
         entities.phones = self._extract_phones(full_text)
         
-        # 3. Извлекаем emails (regex)
+        # Извлекаются emails через регулярные выражения
         entities.emails = self._extract_emails(full_text)
         
-        # 4. Извлекаем номера заказов (regex + эвристики)
+        # Извлекаются номера заказов через регулярные выражения и эвристики
         entities.order_ids = self._extract_order_ids(full_text)
         
-        # 5. Извлекаем ID аккаунтов
+        # Извлекаются ID аккаунтов
         entities.account_ids = self._extract_account_ids(full_text)
         
-        # 6. Извлекаем суммы денег
+        # Извлекаются суммы денег
         entities.money_amounts = self._extract_money(full_text)
         
-        # 7. Извлекаем даты
+        # Извлекаются даты
         entities.dates = self._extract_dates(full_text)
 
         logger.info(
@@ -101,28 +92,22 @@ class EntityExtractor:
 
         return entities
 
+    # Функция извлекает сущности из полного текста обращения с помощью DeepPavlov NER. Принимает строку text, возвращает словарь
+    # с найденными сущностями. Возвращает токены сущностей.
     def _extract_ner_entities(
         self,
         text: str,
     ) -> Dict[str, List[ExtractedEntity]]:
-        """
-        Извлечение сущностей через DeepPavlov NER
 
-        DeepPavlov NER возвращает теги в формате BIO:
-        - B-PER: начало имени персоны
-        - I-PER: продолжение имени персоны
-        - B-ORG: начало названия организации
-        - I-ORG: продолжение названия организации
-        - B-LOC: начало локации
-        - I-LOC: продолжение локации
-        - O: не сущность
-        """
         try:
-            # DeepPavlov NER принимает список текстов
-            # Возвращает ([tokens], [tags])
+            # Вызов модели
             result = self.ner_model([text])
-            tokens = result[0][0]  # Первый текст, первый элемент
-            tags = result[1][0]    # Первый текст, второй элемент
+
+            # Первый текст, первый элемент
+            tokens = result[0][0] 
+
+            # Первый текст, второй элемент
+            tags = result[1][0]
             
             entities = {
                 "persons": [],
@@ -130,16 +115,19 @@ class EntityExtractor:
                 "locations": []
             }
 
-            # Собираем сущности из BIO-тегов
+            # Сбор сущности из BIO-тегов
             current_entity = None
             current_tokens = []
             current_type = None
 
+            # Проход по токенам и тегам, zip(tokens, tags) объединяет токен и его тег.
             for token, tag in zip(tokens, tags):
                 if tag.startswith("B-"):
+
                     # Начало новой сущности
                     if current_tokens:
-                        # Сохраняем предыдущую
+
+                        # Сохранение предыдущей
                         entity = self._create_entity_from_tokens(
                             current_tokens, current_type, text
                         )
@@ -147,14 +135,18 @@ class EntityExtractor:
                             entities[self._map_tag_to_type(current_type)].append(entity)
 
                     current_tokens = [token]
-                    current_type = tag[2:]  # PER, ORG, LOC
+
+                    # PER, ORG, LOC
+                    current_type = tag[2:]
 
                 elif tag.startswith("I-") and current_tokens:
+
                     # Продолжение текущей сущности
                     current_tokens.append(token)
 
                 else:
-                    # Тег O или несовпадение типа - завершаем текущую
+
+                    # Тег O или несовпадение типа - завершается текущая
                     if current_tokens:
                         entity = self._create_entity_from_tokens(
                             current_tokens, current_type, text
@@ -164,7 +156,7 @@ class EntityExtractor:
                     current_tokens = []
                     current_type = None
 
-            # Не забываем последнюю сущность
+            # Последняя сущность
             if current_tokens:
                 entity = self._create_entity_from_tokens(
                     current_tokens, current_type, text
@@ -185,40 +177,48 @@ class EntityExtractor:
             logger.error(f"DeepPavlov NER extraction failed: {e}")
             return {"persons": [], "organizations": [], "locations": []}
 
+    # Функция необходима для создания объекта extractedEntity из токенов, полученных в _extract_ner_entities. Принимает на вход 
+    # Словарь токенов, тип сущности и полный текст. Возвращает объект ExtractedEntity.То есть либо 
+    # объект найденной сущности, либо None, если сущность оказалась шумом и её надо отбросить.
     def _create_entity_from_tokens(
         self,
         tokens: List[str],
         entity_type: str,
         full_text: str
     ) -> Optional[ExtractedEntity]:
-        """Создает ExtractedEntity из токенов"""
         if not tokens:
             return None
 
-        # Собираем значение
+        # Сбор значения
         value = " ".join(tokens).strip()
 
-        # Фильтруем шум (односимвольные, цифры и т.д.)
+        # Фильтрация шума (односимвольные, цифры и т.д.)
         if len(value) < 2 or value.isdigit():
             return None
 
-        # Ищем контекст в полном тексте
+        # Поиск контекста в полном тексте
         try:
             pos = full_text.lower().find(value.lower())
             if pos >= 0:
                 start = max(0, pos - 30)
                 end = min(len(full_text), pos + len(value) + 30)
                 context = full_text[start:end]
+
+            # Если сущность в полном тексте не найдена, она сама становится контекстом
             else:
                 context = value
         except:
             context = value
 
-        # Confidence зависит от длины и типа
+        # Уверенность зависит от длины и типа. Это эвристическая оценка, заданная вручную.
         confidence = 0.85
-        if len(tokens) > 2:  # Полное имя (Иван Иванович Иванов)
+
+        # Если сущность состоит больше чем из двух токенов, уверенность повышается до 0.9.
+        if len(tokens) > 2:
             confidence = 0.9
-        if entity_type == "PER" and len(value.split()) >= 2:  # Имя + Фамилия
+
+        # Если тип сущности — персона (PER) и в значении хотя бы два слова, уверенность повышается до 0.95
+        if entity_type == "PER" and len(value.split()) >= 2:
             confidence = 0.95
 
         return ExtractedEntity(
@@ -227,9 +227,8 @@ class EntityExtractor:
             confidence=confidence,
             context=context
         )
-
+    # Функция выполняет маппинг BIO-тегов в типы сущностей
     def _map_tag_to_type(self, tag: str) -> str:
-        """Маппинг BIO-тегов в типы сущностей"""
         mapping = {
             "PER": "persons",
             "ORG": "organizations",
@@ -237,18 +236,20 @@ class EntityExtractor:
         }
         return mapping.get(tag, "persons")
 
+    # Функция является запасной для извлечения ФИО через регулярные выражения (на случай, если по какой-либо причине NER не отработал)
+    # Принимает на вход полный текст обращения и возвращает список найденных персон. 
+    # Ищет паттерны типа "меня зовут Иван", "я Петр Сидоров"
     def _extract_persons_regex(self, text: str) -> List[ExtractedEntity]:
-        """
-        Fallback: простое извлечение имен через regex
-        Ищет паттерны типа "меня зовут Иван", "я Петр Сидоров"
-        """
+
         patterns = [
             r'(?:меня\s+зовут|зовут|я|это)\s+([А-ЯЁ][а-яё]+(?:[\s,]+[А-ЯЁ][а-яё]+){0,2})',
             r'\b([А-ЯЁ][а-яё]+(?:[\s,]+[А-ЯЁ][а-яё]+){1,2})\b',
         ]
 
         persons = []
-        seen = set()  # Для дедупликации
+
+        # Предусмотрена дедупликация найденных персон
+        seen = set()
 
         for pattern in patterns:
             for m in re.finditer(pattern, text):
@@ -267,14 +268,20 @@ class EntityExtractor:
                     persons.append(ExtractedEntity(
                         type="person",
                         value=name,
-                        confidence=0.7,  # Ниже чем у NER
+
+                        # Эвристически заданная величина, меньшая чем у NER
+                        confidence=0.7,
                         context=context
                     ))
                     seen.add(key)
         
         return persons
 
+    # Функция проверяет, похоже ли найденное совпадение с регулярным выражением на имя человека. Принимает строку, возвращает
+    # boolean значение
     def _is_likely_person_name(self, value: str) -> bool:
+
+        # Строка разбивается на слова и очищается от знаков препинания по краям.
         words = [w.strip(".,;:!?\"'()") for w in value.split() if w.strip(".,;:!?\"'()")]
         if not words:
             return False
@@ -283,6 +290,7 @@ class EntityExtractor:
         if any(not re.match(r'^[А-ЯЁ][а-яё-]+$', w) for w in words):
             return False
 
+        # Список слов, которые часто могут попасть в регулярное выражение как ложное имя, но человеком не являются.
         blacklist = {
             "техническая", "поддержка", "компания", "компании", "номер",
             "телефона", "вопрос", "курсы", "занятия", "паспорт", "здравствуйте",
@@ -295,8 +303,8 @@ class EntityExtractor:
 
         return self._is_common_name(words[0])
     
+    # Функция выполняет проверку на распространенные имена
     def _is_common_name(self, name: str) -> bool:
-        """Проверка на распространенные имена"""
         common_names = {
             "Александр", "Алексей", "Андрей", "Анна", "Борис", "Василий",
             "Виктор", "Владимир", "Дмитрий", "Евгений", "Елена", "Игорь",
@@ -306,21 +314,27 @@ class EntityExtractor:
         }
         return name in common_names
     
+    # Функция предназначена для извлечения телефонных номеров через регулярные выражения.
+    # Принимает на вход полный текст обращения и возвращает список найденных телефонных номеров. 
     def _extract_phones(self, text: str) -> List[ExtractedEntity]:
-        """Извлечение телефонов (regex)"""
-        # Паттерн для российских номеров (в т.ч. "диктовка по цифрам")
+
+        # Паттерн для российских номеров. Ищет строку, которая начинается с необязательного + и цифры;
+        # дальше содержит цифры, пробелы, дефисы или скобки и заканчивается цифрой.
         pattern = r'(?:\+?\d[\d\-\s\(\)]{8,26}\d)'
         phones = []
         seen = set()
         phone_cues = re.compile(r'(номер|телефон|контакт)', re.IGNORECASE)
         
+        # Поиск всех совпадений телефонного шаблона в тексте
         for m in re.finditer(pattern, text):
             raw_phone = m.group(0).strip()
+
+            # Удаление из номера всего кроме цифр
             digits = re.sub(r"\D", "", raw_phone)
             if len(digits) < 10 or len(digits) > 12:
                 continue
 
-            # Нормализуем к +7XXXXXXXXXX когда возможно
+            # Нормализация к +7XXXXXXXXXX когда возможно
             normalized = digits
             if len(digits) == 10:
                 normalized = "7" + digits
@@ -345,6 +359,7 @@ class EntityExtractor:
             if not has_cue and not has_separators:
                 continue
             
+            # Вырезается контекст вокруг найденного номера: примерно 30 символов до и 30 после.
             start = max(0, m.start() - 30)
             end = min(len(text), m.end() + 30)
             context = text[start:end]
@@ -359,18 +374,25 @@ class EntityExtractor:
         
         return phones
     
+    # Функция ищет в тексте email-адреса и возвращает их в виде списка ExtractedEntity. Принимает полный текст. Возвращает список 
+    # ExtractedEntity
     def _extract_emails(self, text: str) -> List[ExtractedEntity]:
-        """Извлечение email адресов"""
+
+        # Регулярное выражение для поиска email. Ищет структуру вида "имя@домен.зона"
         pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         emails = []
+
+        # Структура для сохранения уникальных значений, чтобы избежать дубликатов
         seen = set()
         
+        # Поиск совпадений с шаблоном в тексте
         for m in re.finditer(pattern, text):
             email = m.group(0).lower()
             
             if email in seen:
                 continue
             
+            # Формируется контекст вокруг email: примерно 30 символов до и 30 после
             start = max(0, m.start() - 30)
             end = min(len(text), m.end() + 30)
             context = text[start:end]
@@ -385,15 +407,15 @@ class EntityExtractor:
         
         return emails
     
+    # Функция ищет номера заказов в тексте. Принимает полный текст. Возвращает список 
+    # ExtractedEntity
     def _extract_order_ids(self, text: str) -> List[ExtractedEntity]:
-        """
-        Извлечение номеров заказов
-        Примеры: "заказ 12345", "номер заказа АБ-123456"
-        """
         patterns = [
+
             # "номер заказа 123456", "заказ на установку 756.13.632"
+
             r'(?:номер\s+заказа?|заказ(?:\s+на\s+\w+){0,3})[^A-ZА-Я0-9]{0,8}([A-ZА-Я]{0,3}\-?\d[\d\.\-\s]{2,20}\d)',
-            # english fallback
+            # Версия на английском
             r'(?:order(?:\s+number)?)[:\s№#-]{0,8}([A-Z]{0,3}\-?\d[\d\.\-\s]{2,20}\d)',
         ]
         
@@ -403,7 +425,7 @@ class EntityExtractor:
         for pattern in patterns:
             for m in re.finditer(pattern, text, re.IGNORECASE):
                 raw_order_id = m.group(1).strip().rstrip(".,;:!?")
-                # Нормализуем "756.13.632" -> "75613632", "AB-1234" -> "AB1234"
+                # Нормализация "756.13.632" -> "75613632", "AB-1234" -> "AB1234"
                 order_id = re.sub(r'[^A-ZА-Я0-9]', '', raw_order_id.upper())
                 if len(order_id) < 4 or not re.search(r'\d', order_id):
                     continue
@@ -425,10 +447,15 @@ class EntityExtractor:
         
         return order_ids
     
+    # Функция ищет в тексте идентификаторы аккаунтов, ID или лицевых счетов.
     def _extract_account_ids(self, text: str) -> List[ExtractedEntity]:
-        """Извлечение ID аккаунтов"""
+
         patterns = [
+            
+            # Шаблон для поиска конструкций вида: аккаунт ABC123, account ABC123, лицевой счет 123456
             r'(?:\bаккаунт\b|\baccount\b|лицевой\s+счет)\s*[:\s№#-]*\s*([A-ZА-Я0-9\-]{4,15})',
+
+            # Шаблон для поиска конструкций вида: ID 123456, идентификатор AB-1234, ид 987654
             r'(?:\bID\b|\bидентификатор\b|\bид\b)\s*[:\s№#-]*\s*([A-ZА-Я0-9\-]{4,15})',
         ]
         
@@ -442,6 +469,7 @@ class EntityExtractor:
                 if acc_id in seen:
                     continue
                 
+                # Вырезается контекст вокруг найденного ID: 30 символов до и 30 после.
                 start = max(0, m.start() - 30)
                 end = min(len(text), m.end() + 30)
                 context = text[start:end]
@@ -456,8 +484,8 @@ class EntityExtractor:
         
         return account_ids
     
+    # Функция ищет в тексте денежные суммы.
     def _extract_money(self, text: str) -> List[ExtractedEntity]:
-        """Извлечение денежных сумм"""
         pattern = r"""
             (\d{1,3}(?:[\s\u00A0]?\d{3})*(?:[.,]\d{1,2})?)
             \s*
@@ -489,10 +517,14 @@ class EntityExtractor:
         
         return money
     
+    # Функция ищет даты в тексте.
     def _extract_dates(self, text: str) -> List[ExtractedEntity]:
-        """Извлечение дат"""
         patterns = [
-            r'\b(\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4})\b',  # 01.12.2024
+
+            # Шаблон ищет числовые даты: 01.12.2024, 1/12/24, 01-12-2024
+            r'\b(\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4})\b',
+
+            # Шаблон ищет даты с названием месяца: 1 декабря, 15 января 2024
             r'\b(\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+\d{4})?)\b',
         ]
         
