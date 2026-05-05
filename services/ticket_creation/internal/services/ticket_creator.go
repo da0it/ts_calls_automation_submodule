@@ -13,6 +13,7 @@ import (
 	"ticket_module/internal/models"
 )
 
+
 type TicketCreatorService struct {
 	pythonClient            *clients.PythonClient
 	summarizer              TicketSummarizer

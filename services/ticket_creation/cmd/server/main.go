@@ -12,9 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"ticket_module/internal/adapters"
 	"ticket_module/internal/clients"
 	"ticket_module/internal/database"
@@ -22,8 +19,13 @@ import (
 	"ticket_module/internal/handlers"
 	"ticket_module/internal/services"
 	"ticket_module/pkg/config"
+
+	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
+// Основная функция запуска
 func main() {
 	// Загрузка конфигурации
 	cfg := config.Load()
@@ -52,6 +54,8 @@ func main() {
 	// Выбор адаптера тикет-системы
 	var ticketAdapter adapters.TicketSystemAdapter
 	switch cfg.TicketSystem {
+
+	// Тикет-система - заглушка для проверки работоспособности без реальной интеграции
 	case "mock":
 		ticketAdapter = adapters.NewMockAdapter()
 		log.Println("Using Mock ticket adapter")
@@ -99,6 +103,7 @@ func main() {
 		log.Fatalf("Failed to listen gRPC: %v", err)
 	}
 
+	// Создаётся срез опций для gRPC-сервера.
 	grpcOptions := make([]grpc.ServerOption, 0, 1)
 	if cfg.GRPCTLSEnabled {
 		creds, tlsErr := credentials.NewServerTLSFromFile(cfg.GRPCTLSCertFile, cfg.GRPCTLSKeyFile)
@@ -117,24 +122,28 @@ func main() {
 	}
 	log.Printf("Starting ticket gRPC service on %s (%s)", grpcAddr, grpcMode)
 
+	// HTTP-сервер запускается в отдельной goroutine
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start HTTP server: %v", err)
 		}
 	}()
 
+	// gRPC-сервер тоже запускается в отдельной goroutine
 	go func() {
 		if err := grpcSrv.Serve(lis); err != nil {
 			log.Fatalf("Failed to start gRPC server: %v", err)
 		}
 	}()
 
+	// Блок graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	log.Println("Shutting down ticket service...")
 
+	// GracefulStop() корректно останавливает gRPC-сервер
 	grpcSrv.GracefulStop()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -143,7 +152,9 @@ func main() {
 	}
 }
 
+// Функция создаёт и настраивает HTTP router.
 func setupRouter(h *handlers.TicketHandler, cfg *config.Config) *gin.Engine {
+
 	// В production используй gin.SetMode(gin.ReleaseMode)
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.DebugMode)
@@ -180,7 +191,10 @@ func setupRouter(h *handlers.TicketHandler, cfg *config.Config) *gin.Engine {
 	return router
 }
 
+// Функция создаёт middleware для CORS. Без CORS браузер может заблокировать запрос
 func corsMiddleware(allowedOriginsRaw string) gin.HandlerFunc {
+
+	// Строка разрешённых origin преобразуется в map
 	allowedOrigins := parseAllowedOrigins(allowedOriginsRaw)
 	allowAny := allowedOrigins["*"]
 
@@ -205,6 +219,7 @@ func corsMiddleware(allowedOriginsRaw string) gin.HandlerFunc {
 	}
 }
 
+// Функция преобразует строку с origin в map
 func parseAllowedOrigins(raw string) map[string]bool {
 	out := make(map[string]bool)
 	for _, item := range strings.Split(raw, ",") {
@@ -217,6 +232,7 @@ func parseAllowedOrigins(raw string) map[string]bool {
 	return out
 }
 
+// Функция добавляет базовые security headers
 func setSecurityHeaders(c *gin.Context) {
 	c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
 	c.Writer.Header().Set("X-Frame-Options", "DENY")

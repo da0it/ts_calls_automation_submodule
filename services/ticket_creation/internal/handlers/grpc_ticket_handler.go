@@ -12,15 +12,24 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Структура gRPC-хандлера
 type TicketGRPCHandler struct {
+
+	// служебная встраиваемая структура, которую рекомендует добавлять gRPC, чтобы хандлер корректно реализовывал
+	//  серверный интерфейс protobuf-сервиса.
 	callprocessingv1.UnimplementedTicketServiceServer
+
+	// Ссылка на сервисный слой.
 	service *services.TicketCreatorService
 }
 
+// Функция-конструктор. Принимает сервис и возвращает новый gRPC-хандлер
 func NewTicketGRPCHandler(service *services.TicketCreatorService) *TicketGRPCHandler {
 	return &TicketGRPCHandler{service: service}
 }
 
+// Основной метод файла. Обрабатывает gRPC-запрос на создание тикета. Вызывается у объекта хендлера. Принимает входной protobuf-запрос,
+// Возвращает protobuf-ответ CreateTicketResponse/ошибку error.
 func (h *TicketGRPCHandler) CreateTicket(ctx context.Context, req *callprocessingv1.CreateTicketRequest) (*callprocessingv1.CreateTicketResponse, error) {
 	if req.GetTranscript() == nil {
 		return nil, status.Error(codes.InvalidArgument, "transcript is required")
@@ -29,7 +38,10 @@ func (h *TicketGRPCHandler) CreateTicket(ctx context.Context, req *callprocessin
 		return nil, status.Error(codes.InvalidArgument, "segments are required")
 	}
 
+	// Создание среза внутренних моделей сегментов
 	segments := make([]models.Segment, 0, len(req.GetTranscript().GetSegments()))
+
+	// Преобразование сегмента из protobuf в model
 	for _, seg := range req.GetTranscript().GetSegments() {
 		segments = append(segments, models.Segment{
 			Start:   seg.GetStart(),
@@ -40,33 +52,43 @@ func (h *TicketGRPCHandler) CreateTicket(ctx context.Context, req *callprocessin
 		})
 	}
 
+	// Обработка метаданных
 	var metadata map[string]interface{}
 	if req.GetTranscript().GetMetadata() != nil {
 		metadata = req.GetTranscript().GetMetadata().AsMap()
 	}
 
+	// Сборка внутреннего сервиса CreateTicketRequest
 	createReq := &models.CreateTicketRequest{
+
+		// Заполнение транскрипции
 		Transcript: models.TranscriptData{
 			CallID:      req.GetTranscript().GetCallId(),
 			Segments:    segments,
 			RoleMapping: req.GetTranscript().GetRoleMapping(),
 			Metadata:    metadata,
 		},
+
+		// Заполнение результата маршрутизации
 		Routing: models.RoutingData{
 			IntentID:         req.GetRouting().GetIntentId(),
 			IntentConfidence: req.GetRouting().GetIntentConfidence(),
 			Priority:         req.GetRouting().GetPriority(),
 			SuggestedGroup:   req.GetRouting().GetSuggestedGroup(),
 		},
+
+		// Protobuf-сущности преобразуются во внутреннюю модель models.Entities
 		Entities: entitiesFromProto(req.GetEntities()),
 		AudioURL: req.GetAudioUrl(),
 	}
 
+	// Хандлер передаёт подготовленный запрос в сервисный слой
 	created, err := h.service.CreateTicket(createReq)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "create ticket: %v", err)
 	}
 
+	// Если тикет успешно создан, хандлер возвращает gRPC-ответ.
 	return &callprocessingv1.CreateTicketResponse{
 		Ticket: &callprocessingv1.TicketCreated{
 			TicketId:   created.TicketID,
@@ -78,6 +100,7 @@ func (h *TicketGRPCHandler) CreateTicket(ctx context.Context, req *callprocessin
 	}, nil
 }
 
+// Функция преобразует protobuf-структуру сущностей во внутреннюю структуру *models.Entities
 func entitiesFromProto(src *callprocessingv1.Entities) *models.Entities {
 	if src == nil {
 		return nil
@@ -94,6 +117,7 @@ func entitiesFromProto(src *callprocessingv1.Entities) *models.Entities {
 	}
 }
 
+// Функция преобразует список protobuf-сущностей в список внутренних сущностей
 func entityListFromProto(src []*callprocessingv1.ExtractedEntity) []models.ExtractedEntity {
 	out := make([]models.ExtractedEntity, 0, len(src))
 	for _, item := range src {
