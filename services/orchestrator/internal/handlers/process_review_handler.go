@@ -6,16 +6,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"orchestrator/internal/clients"
 	"orchestrator/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
+// Константы spam-класса обращений
 const (
 	reviewSpamIntentID       = "spam.call"
 	reviewLegacySpamIntentID = "spam"
 )
 
+// Часть JSON-запроса, которая описывает результат проверки на спам.
 type reviewSpamCheckPayload struct {
 	Status         string  `json:"status"`
 	PredictedLabel string  `json:"predicted_label"`
@@ -26,6 +29,7 @@ type reviewSpamCheckPayload struct {
 	Backend        string  `json:"backend"`
 }
 
+// Блок маршрутизации.
 type reviewRoutingPayload struct {
 	IntentID         string  `json:"intent_id"`
 	IntentConfidence float64 `json:"intent_confidence"`
@@ -33,6 +37,7 @@ type reviewRoutingPayload struct {
 	SuggestedGroup   string  `json:"suggested_group"`
 }
 
+// Транскрипция звонка, которую нужно передать обратно в оркестратор
 type spamReviewTranscriptPayload struct {
 	CallID      string                 `json:"call_id"`
 	Segments    []clients.Segment      `json:"segments"`
@@ -40,6 +45,7 @@ type spamReviewTranscriptPayload struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
+// Основной JSON-запрос для ручной проверки.
 type routingReviewRequest struct {
 	QueueID        string                      `json:"queue_id"`
 	CallID         string                      `json:"call_id"`
@@ -50,6 +56,7 @@ type routingReviewRequest struct {
 	SpamCheck      reviewSpamCheckPayload      `json:"spam_check"`
 }
 
+// Метод проверяет, пустой ли блок spam-check
 func (p reviewSpamCheckPayload) isEmpty() bool {
 	return p.Status == "" &&
 		p.PredictedLabel == "" &&
@@ -60,6 +67,7 @@ func (p reviewSpamCheckPayload) isEmpty() bool {
 		p.Backend == ""
 }
 
+// Функция собирает внутреннюю структуру транскрипции из JSON-запроса
 func buildTranscript(callID string, payload spamReviewTranscriptPayload) *clients.TranscriptionResponse {
 	transcript := &clients.TranscriptionResponse{
 		CallID:      strings.TrimSpace(payload.CallID),
@@ -76,6 +84,7 @@ func buildTranscript(callID string, payload spamReviewTranscriptPayload) *client
 	return transcript
 }
 
+// Функция преобразует JSON-блок spam-check во внутреннюю структуру clients.SpamCheckResponse
 func buildSpamCheck(payload reviewSpamCheckPayload) *clients.SpamCheckResponse {
 	if payload.isEmpty() {
 		return nil
@@ -92,6 +101,7 @@ func buildSpamCheck(payload reviewSpamCheckPayload) *clients.SpamCheckResponse {
 	}
 }
 
+// Функция пытается загрузить существующую запись очереди
 func (h *ProcessHandler) loadExistingQueueRecord(queueID string) map[string]interface{} {
 	if queueID == "" || h.callQueueService == nil {
 		return map[string]interface{}{}
@@ -103,6 +113,7 @@ func (h *ProcessHandler) loadExistingQueueRecord(queueID string) map[string]inte
 	return current
 }
 
+// Функция собирает внутренний результат маршрутизации из JSON-запроса
 func buildRouting(payload routingReviewRequest) *clients.RoutingResponse {
 	return &clients.RoutingResponse{
 		IntentID:         strings.TrimSpace(payload.Routing.IntentID),
@@ -113,11 +124,13 @@ func buildRouting(payload routingReviewRequest) *clients.RoutingResponse {
 	}
 }
 
+// Функция проверяет, является ли цель обращения спамом
 func isReviewSpamIntent(intentID string) bool {
 	raw := strings.ToLower(strings.TrimSpace(intentID))
 	return raw == reviewSpamIntentID || raw == reviewLegacySpamIntentID
 }
 
+// Функция формирует review-блок после решения оператора.
 func buildCompletedReview(payload routingReviewRequest) map[string]interface{} {
 	return map[string]interface{}{
 		"decision":    strings.ToLower(strings.TrimSpace(payload.Decision)),
@@ -130,6 +143,7 @@ func buildCompletedReview(payload routingReviewRequest) map[string]interface{} {
 	}
 }
 
+// Финальный общий метод для обоих сценариев:обычный routing review и spam override.
 func (h *ProcessHandler) finalizeReviewResult(
 	c *gin.Context,
 	result *services.ProcessCallResult,
@@ -148,17 +162,25 @@ func (h *ProcessHandler) finalizeReviewResult(
 	c.JSON(http.StatusOK, result)
 }
 
+// HTTP endpoint, который принимает решение ручной проверки.
 func (h *ProcessHandler) ResolveRoutingReview(c *gin.Context) {
+
+	// Чтение json
 	var payload routingReviewRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
+	// JSON-запрос приводится к виду внутренни структур, которые понимает оркестратор.
 	transcript := buildTranscript(payload.CallID, payload.Transcript)
 	routing := buildRouting(payload)
 
+	// Эта ветка срабатывает, если: оператор принял решение accepted; выбранный класс является спамом
+	// То есть ручная проверка подтверждает, что звонок действительно спам.
 	if strings.ToLower(strings.TrimSpace(payload.Decision)) == "accepted" && isReviewSpamIntent(routing.IntentID) {
+
+		// Вызов оркестратора
 		result, err := h.orchestrator.ContinueAfterSpamOverride(services.ContinueAfterSpamOverrideInput{
 			CallID:         payload.CallID,
 			SourceFilename: payload.SourceFilename,
@@ -186,6 +208,8 @@ func (h *ProcessHandler) ResolveRoutingReview(c *gin.Context) {
 			}(),
 		})
 
+		// Обновление review после результата
+		// Сначала берется существующая запись в очереди, потом создается completed review.
 		existing := h.loadExistingQueueRecord(payload.QueueID)
 		review := buildCompletedReview(payload)
 		if result.Routing != nil {
@@ -197,6 +221,7 @@ func (h *ProcessHandler) ResolveRoutingReview(c *gin.Context) {
 		return
 	}
 
+	// Если условие spam override не сработало, выполняется обычная ветка:
 	result, err := h.orchestrator.ContinueAfterRoutingReview(services.ContinueAfterRoutingReviewInput{
 		CallID:         payload.CallID,
 		SourceFilename: payload.SourceFilename,

@@ -6,7 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// HTTP-хэндлер Gin для проверки статуса модели маршрутизации.
 func (h *ProcessHandler) GetRoutingModelStatus(c *gin.Context) {
+
+	// Проверка, что сервис модели маршрутизации подключен
 	if h.routingModelService == nil {
 		h.writeAudit(c, "routing.model.status", "routing_model", "", "failed", map[string]interface{}{
 			"reason": "service_not_configured",
@@ -15,6 +18,7 @@ func (h *ProcessHandler) GetRoutingModelStatus(c *gin.Context) {
 		return
 	}
 
+	// Хэндлер вызывает сервисный слой
 	status, err := h.routingModelService.GetStatus()
 	if err != nil {
 		h.writeAudit(c, "routing.model.status", "routing_model", "", "failed", map[string]interface{}{

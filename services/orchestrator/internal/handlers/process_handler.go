@@ -4,11 +4,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"orchestrator/internal/models"
 	"orchestrator/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
+// Список разрешенных аудиоформатов
 var allowedAudioFormats = map[string]struct{}{
 	".mp3":  {},
 	".wav":  {},
@@ -17,6 +19,7 @@ var allowedAudioFormats = map[string]struct{}{
 	".ogg":  {},
 }
 
+// Главная структура HTTP-хэндлера модуля управления
 type ProcessHandler struct {
 	orchestrator           *services.OrchestratorService
 	callQueueService       *services.CallQueueService
@@ -28,6 +31,7 @@ type ProcessHandler struct {
 	uploadDir              string
 }
 
+// Конструктор ProcessHandler
 func NewProcessHandler(
 	orchestrator *services.OrchestratorService,
 	callQueueService *services.CallQueueService,
@@ -54,6 +58,7 @@ func NewProcessHandler(
 	}
 }
 
+// Общий вспомогательный метод для записи события аудита
 func (h *ProcessHandler) writeAudit(
 	c *gin.Context,
 	eventType string,
@@ -77,6 +82,7 @@ func (h *ProcessHandler) writeAudit(
 		}
 	}
 
+	// Запись события
 	if err := h.auditService.LogEvent(services.AuditEvent{
 		RequestID:     c.GetString("request_id"),
 		ActorUserID:   actorUserID,

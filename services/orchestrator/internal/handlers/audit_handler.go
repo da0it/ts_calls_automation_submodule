@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Метод основного хэндлера ProcessHandler. Обрабатывает HTTP-запрос на получение audit-логов.
 func (h *ProcessHandler) ListAuditEvents(c *gin.Context) {
 	if h.auditService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "audit service is not configured"})

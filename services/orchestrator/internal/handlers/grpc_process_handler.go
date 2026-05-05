@@ -15,17 +15,24 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Структура gRPC-хэндлера
 type ProcessGRPCHandler struct {
+
+	// Встроенная структура, которую генерирует protobuf/gRPC
 	callprocessingv1.UnimplementedOrchestratorServiceServer
+
+	// Основной сервис оркестрации
 	orchestrator *services.OrchestratorService
 }
 
+// Функция-конструктор. Создает экземпляр gRPC-хэндлера и передает в него сервис оркестрации.
 func NewProcessGRPCHandler(orchestrator *services.OrchestratorService) *ProcessGRPCHandler {
 	return &ProcessGRPCHandler{
 		orchestrator: orchestrator,
 	}
 }
 
+// Метод ProcessCall вызывается, когда клиент отправляет аудиозапись на обработку.
 func (h *ProcessGRPCHandler) ProcessCall(ctx context.Context, req *callprocessingv1.ProcessCallRequest) (*callprocessingv1.ProcessCallResponse, error) {
 	if len(req.GetAudio()) == 0 {
 		return nil, fmt.Errorf("audio is required")
@@ -62,6 +69,7 @@ func (h *ProcessGRPCHandler) ProcessCall(ctx context.Context, req *callprocessin
 		}
 	}
 
+	// Формирование protobuf-ответа
 	return &callprocessingv1.ProcessCallResponse{
 		CallId:         result.CallID,
 		Transcript:     transcriptToProto(result.Transcript),
@@ -75,11 +83,13 @@ func (h *ProcessGRPCHandler) ProcessCall(ctx context.Context, req *callprocessin
 	}, nil
 }
 
+// Если транскрипции нет, возвращается nil.
 func transcriptToProto(transcript *clients.TranscriptionResponse) *callprocessingv1.Transcript {
 	if transcript == nil {
 		return nil
 	}
 
+	// Преобразование сегментов
 	segments := make([]*callprocessingv1.Segment, 0, len(transcript.Segments))
 	for _, seg := range transcript.Segments {
 		segments = append(segments, &callprocessingv1.Segment{
@@ -104,6 +114,7 @@ func transcriptToProto(transcript *clients.TranscriptionResponse) *callprocessin
 	}
 }
 
+// Функция преобразует результат маршрутизации.
 func routingToProto(routing *clients.RoutingResponse) *callprocessingv1.Routing {
 	if routing == nil {
 		return nil
@@ -118,6 +129,7 @@ func routingToProto(routing *clients.RoutingResponse) *callprocessingv1.Routing 
 	}
 }
 
+// Если проверки на спам нет, возвращается nil. Дальше поля просто перекладываются из внутренней структуры в protobuf.
 func spamCheckToProto(spamCheck *clients.SpamCheckResponse) *callprocessingv1.SpamCheck {
 	if spamCheck == nil {
 		return nil
@@ -134,6 +146,7 @@ func spamCheckToProto(spamCheck *clients.SpamCheckResponse) *callprocessingv1.Sp
 	}
 }
 
+// Если сущностей нет, возвращается не nil, а пустая структура Entities.
 func entitiesToProto(entities *clients.Entities) *callprocessingv1.Entities {
 	if entities == nil {
 		return &callprocessingv1.Entities{}
@@ -150,6 +163,7 @@ func entitiesToProto(entities *clients.Entities) *callprocessingv1.Entities {
 	}
 }
 
+// Функция преобразует список извлеченных сущностей.
 func entityListToProto(items []clients.ExtractedEntity) []*callprocessingv1.ExtractedEntity {
 	out := make([]*callprocessingv1.ExtractedEntity, 0, len(items))
 	for _, item := range items {
@@ -163,6 +177,7 @@ func entityListToProto(items []clients.ExtractedEntity) []*callprocessingv1.Extr
 	return out
 }
 
+// Если тикет не был создан, возвращается nil.
 func ticketToProto(ticket *clients.TicketCreated) *callprocessingv1.TicketCreated {
 	if ticket == nil {
 		return nil

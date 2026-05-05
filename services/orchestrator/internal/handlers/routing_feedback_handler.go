@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"orchestrator/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
+// Структура JSON-запроса, который приходит от интерфейса проверки
 type routingFeedbackRequest struct {
 	QueueID            string                               `json:"queue_id"`
 	CallID             string                               `json:"call_id"`
@@ -18,12 +20,16 @@ type routingFeedbackRequest struct {
 	TranscriptText     string                               `json:"transcript_text"`
 	TranscriptSegments []services.FeedbackTranscriptSegment `json:"transcript_segments"`
 	TrainingSample     string                               `json:"training_sample"`
-	AI                 struct {
+
+	// Блок AI - то, что предложила модель.
+	AI struct {
 		IntentID   string  `json:"intent_id"`
 		Confidence float64 `json:"confidence"`
 		Priority   string  `json:"priority"`
 		Group      string  `json:"group"`
 	} `json:"ai"`
+
+	// Финальное решение оператора
 	Final struct {
 		IntentID string `json:"intent_id"`
 		Priority string `json:"priority"`
@@ -31,6 +37,7 @@ type routingFeedbackRequest struct {
 	} `json:"final"`
 }
 
+// Основной HTTP-хэндлер для сохранения результата в фидбек
 func (h *ProcessHandler) SaveRoutingFeedback(c *gin.Context) {
 	if h.routingFeedbackService == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "routing feedback service is not configured"})
@@ -43,6 +50,7 @@ func (h *ProcessHandler) SaveRoutingFeedback(c *gin.Context) {
 		return
 	}
 
+	// Входной JSON преобразуется в структуру сервисного слоя services.RoutingFeedbackRequest. Сохраняется запись фидбека
 	record, err := h.routingFeedbackService.SaveFeedback(services.RoutingFeedbackRequest{
 		CallID:             payload.CallID,
 		SourceFilename:     payload.SourceFilename,

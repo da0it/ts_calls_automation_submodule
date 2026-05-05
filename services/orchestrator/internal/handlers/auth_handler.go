@@ -6,19 +6,30 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"orchestrator/internal/middleware"
 	"orchestrator/internal/models"
 	"orchestrator/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
+// Структура хранит зависимости для работы с пользователями
 type AuthHandler struct {
-	userService  *services.UserService
-	jwtSecret    string
-	jwtExpiry    int
+
+	// Сервис пользователей.
+	userService *services.UserService
+
+	// Секретный ключ для подписи JWT-токена
+	jwtSecret string
+
+	// Время жизни JWT-токена
+	jwtExpiry int
+
+	// Сервис аудита
 	auditService *services.AuditService
 }
 
+// Функция-конструктор. Создает новый хендлер аутентификации
 func NewAuthHandler(userService *services.UserService, jwtSecret string, jwtExpiry int, auditService *services.AuditService) *AuthHandler {
 	return &AuthHandler{
 		userService:  userService,
@@ -28,16 +39,19 @@ func NewAuthHandler(userService *services.UserService, jwtSecret string, jwtExpi
 	}
 }
 
+// Структура тела запроса для входа пользователя
 type loginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
+// Структура тела запроса для регистрации пользователя
 type registerRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
+// Вспомогательный метод для записи событий аудита
 func (h *AuthHandler) writeAudit(
 	c *gin.Context,
 	actor *models.User,
@@ -75,7 +89,7 @@ func (h *AuthHandler) writeAudit(
 	}
 }
 
-// Login authenticates a user and returns a JWT token.
+// Функция Login выполняет аутентификацию пользователя и возвращает JWT-токен.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,6 +100,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// Непосредственный метод аутентификации
 	user, err := h.userService.Authenticate(req.Username, req.Password)
 	if err != nil {
 		h.writeAudit(c, nil, "auth.login", "user", req.Username, "failed", map[string]interface{}{
@@ -107,6 +122,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// Генерация JWT
 	token, err := middleware.GenerateToken(user, h.jwtSecret, h.jwtExpiry)
 	if err != nil {
 		h.writeAudit(c, user, "auth.login", "user", user.Username, "failed", map[string]interface{}{
@@ -123,7 +139,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-// Register creates a new operator account in pending state.
+// Функция register регистрирует нового оператора.
+// То есть создается заявка на регистрацию, которая ожидает подтверждения администратора.
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -134,6 +151,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Вызов метода регистрации сервиса по управлению пользователями
 	user, err := h.userService.RegisterOperator(req.Username, req.Password)
 	if err != nil {
 		h.writeAudit(c, nil, "auth.register", "user", req.Username, "failed", map[string]interface{}{
@@ -153,24 +171,26 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	})
 }
 
-// Me returns the currently authenticated user.
+// Функция Me возвращает текущего авторизованного пользователя.
 func (h *AuthHandler) Me(c *gin.Context) {
 	user := c.MustGet("user").(*models.User)
 	c.JSON(http.StatusOK, user)
 }
 
+// Структура для создания пользователя администратором.
 type createUserRequest struct {
 	Username string      `json:"username" binding:"required"`
 	Password string      `json:"password" binding:"required"`
 	Role     models.Role `json:"role" binding:"required"`
 }
 
+// Структура ответа для операций подтверждения и деактивации пользователя
 type approveUserResponse struct {
 	Message string       `json:"message"`
 	User    *models.User `json:"user"`
 }
 
-// ListUsers returns all users (admin only).
+// Метод возвращает список всех пользователей. Админский метод
 func (h *AuthHandler) ListUsers(c *gin.Context) {
 	users, err := h.userService.List()
 	if err != nil {
@@ -188,7 +208,7 @@ func (h *AuthHandler) ListUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": users})
 }
 
-// CreateUser creates a new user (admin only).
+// Метод создает нового пользователя от имени администратора
 func (h *AuthHandler) CreateUser(c *gin.Context) {
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -213,7 +233,7 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, user)
 }
 
-// ApproveUser activates a pending operator account (admin only).
+// Метод подтверждает пользователя, который был зарегистрирован и ожидает одобрения администратора.
 func (h *AuthHandler) ApproveUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -242,7 +262,7 @@ func (h *AuthHandler) ApproveUser(c *gin.Context) {
 	})
 }
 
-// DeactivateUser marks an approved operator account as inactive (admin only).
+// Метод деактивирует пользователя.
 func (h *AuthHandler) DeactivateUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -271,7 +291,7 @@ func (h *AuthHandler) DeactivateUser(c *gin.Context) {
 	})
 }
 
-// DeleteUser deletes a user by ID (admin only).
+// Метод удаляет пользователя по ID.
 func (h *AuthHandler) DeleteUser(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

@@ -6,7 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// HTTP-хэндлер Gin.
 func (h *ProcessHandler) GetRoutingConfig(c *gin.Context) {
+
+	// Хэндлер обращается к сервису маршрутизации. routingConfigService отвечает за получение справочника маршрутизации
 	catalog, err := h.routingConfigService.GetCatalog()
 	if err != nil {
 		h.writeAudit(c, "routing.config.get", "routing_config", "", "failed", map[string]interface{}{

@@ -10,6 +10,7 @@ import (
 	"orchestrator/internal/services"
 )
 
+// Функция приводит приоритет к единому виду
 func normalizePriority(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" || value == "normal" {
@@ -18,10 +19,13 @@ func normalizePriority(raw string) string {
 	return value
 }
 
+// Функция формирует начальный блок ручной проверки
 func buildSuggestedReview(result *services.ProcessCallResult) map[string]interface{} {
 	intentID := ""
 	priority := "medium"
 	group := ""
+
+	// Если есть результат маршрутизации, берутся:intentID — предсказанный интент; priority — приоритет; group — рекомендуемая группа.
 	if result != nil && result.Routing != nil {
 		intentID = strings.TrimSpace(result.Routing.IntentID)
 		priority = normalizePriority(result.Routing.Priority)
@@ -41,6 +45,7 @@ func buildSuggestedReview(result *services.ProcessCallResult) map[string]interfa
 	}
 }
 
+// Функция отвечает за безопасное преобразование значения из map[string]interface{} в строку.
 func mapString(value interface{}) string {
 	if value == nil {
 		return ""
@@ -51,6 +56,7 @@ func mapString(value interface{}) string {
 	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
+// Функция проверяет, является ли значение объектом map[string]interface{}.
 func mapObject(value interface{}) map[string]interface{} {
 	if item, ok := value.(map[string]interface{}); ok && item != nil {
 		return item
@@ -58,6 +64,7 @@ func mapObject(value interface{}) map[string]interface{} {
 	return nil
 }
 
+// Функция получает текущую настройку SLA из appSettingsService
 func (h *ProcessHandler) currentSLAMinutes() int {
 	if h.appSettingsService == nil {
 		return 15
@@ -69,6 +76,8 @@ func (h *ProcessHandler) currentSLAMinutes() int {
 	return settings.SLAMinutes
 }
 
+// Функция превращает структуру *services.ProcessCallResult в map[string]interface{} чтобы сохранить
+// результат обработки в очередь как JSON-подобный объект.
 func processResultMap(result *services.ProcessCallResult) (map[string]interface{}, error) {
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -82,6 +91,7 @@ func processResultMap(result *services.ProcessCallResult) (map[string]interface{
 	return payload, nil
 }
 
+// Функция проверяет, есть ли созданный тикет
 func hasTicket(raw map[string]interface{}) bool {
 	return mapString(raw["ticket_id"]) != "" ||
 		mapString(raw["external_id"]) != "" ||
@@ -90,6 +100,7 @@ func hasTicket(raw map[string]interface{}) bool {
 		mapString(raw["created_at"]) != ""
 }
 
+// Функция определяет, когда автоматически остановить SLA
 func automaticStopTime(status string, ticket map[string]interface{}, processedAt string) string {
 	if status == services.ProcessStatusSpamBlocked || status == services.ProcessStatusNoSpeech {
 		return processedAt
@@ -103,6 +114,7 @@ func automaticStopTime(status string, ticket map[string]interface{}, processedAt
 	return ""
 }
 
+// Функция создает стандартный review-блок
 func defaultReview(intentID string, priority string, group string) map[string]interface{} {
 	return map[string]interface{}{
 		"decision":    "pending",
@@ -115,6 +127,7 @@ func defaultReview(intentID string, priority string, group string) map[string]in
 	}
 }
 
+// Функция выбирает, какой review использовать
 func reviewOrExisting(
 	review map[string]interface{},
 	existing map[string]interface{},
@@ -131,6 +144,7 @@ func reviewOrExisting(
 	return defaultReview(intentID, priority, group)
 }
 
+// Функция определяет время поступления запроса
 func requestReceivedAt(result *services.ProcessCallResult, existing map[string]interface{}) string {
 	value := strings.TrimSpace(result.RequestReceivedAt)
 	if value == "" {
@@ -142,6 +156,7 @@ func requestReceivedAt(result *services.ProcessCallResult, existing map[string]i
 	return value
 }
 
+// Функция определяет время завершения обработки
 func processedAt(result *services.ProcessCallResult) string {
 	value := strings.TrimSpace(result.ProcessedAt)
 	if value == "" {
@@ -150,6 +165,7 @@ func processedAt(result *services.ProcessCallResult) string {
 	return value
 }
 
+// Функция получает callID.
 func callIDFromResult(result *services.ProcessCallResult) string {
 	callID := strings.TrimSpace(result.CallID)
 	if callID == "" && result.Transcript != nil {
@@ -158,6 +174,7 @@ func callIDFromResult(result *services.ProcessCallResult) string {
 	return callID
 }
 
+// Функция достает AI-рекомендацию из блока маршрутизации.
 func routingSuggestion(routing map[string]interface{}) (string, string, string, float64) {
 	if routing == nil {
 		return "", "", "medium", 0
@@ -173,6 +190,7 @@ func routingSuggestion(routing map[string]interface{}) (string, string, string, 
 	return intentID, group, priority, confidence
 }
 
+// Функция определяет параметры SLA.
 func resolveSLA(existing map[string]interface{}, fallbackStartedAt string, fallbackLimitMinutes int) (string, int) {
 	startedAt := fallbackStartedAt
 	limitMinutes := fallbackLimitMinutes
@@ -187,6 +205,7 @@ func resolveSLA(existing map[string]interface{}, fallbackStartedAt string, fallb
 	return startedAt, limitMinutes
 }
 
+// Функция строит итоговую запись очереди
 func (h *ProcessHandler) buildQueueCallRecord(
 	result *services.ProcessCallResult,
 	sourceFilename string,
@@ -194,11 +213,14 @@ func (h *ProcessHandler) buildQueueCallRecord(
 	existing map[string]interface{},
 	review map[string]interface{},
 ) (map[string]interface{}, error) {
+
+	// ProcessCallResult превращается в map[string]interface{}.
 	raw, err := processResultMap(result)
 	if err != nil {
 		return nil, fmt.Errorf("marshal queue payload: %w", err)
 	}
 
+	// Достаются вложенные блоки
 	routing := mapObject(raw["routing"])
 	ticket := mapObject(raw["ticket"])
 	spamCheck := mapObject(raw["spam_check"])
@@ -206,11 +228,18 @@ func (h *ProcessHandler) buildQueueCallRecord(
 		spamCheck = mapObject(routing["spam_check"])
 	}
 
+	// Определяются временные метки
 	requestAt := requestReceivedAt(result, existing)
 	doneAt := processedAt(result)
+
+	// Из routing достается рекомендация модели:
 	suggestedIntentID, suggestedGroup, priority, confidence := routingSuggestion(routing)
+
+	// Выбирается review:
 	review = reviewOrExisting(review, existing, suggestedIntentID, priority, suggestedGroup)
 
+	// Если система может автоматически завершить обработку, например:спам, нет речи или тикет создан
+	// то completedAt в review заполняется автоматически.
 	stopTime := automaticStopTime(strings.TrimSpace(result.Status), ticket, doneAt)
 	if mapString(review["completedAt"]) == "" && stopTime != "" {
 		review["completedAt"] = stopTime
@@ -218,6 +247,7 @@ func (h *ProcessHandler) buildQueueCallRecord(
 
 	slaStartedAt, slaMinutes := resolveSLA(existing, requestAt, h.currentSLAMinutes())
 
+	// Формируется запись
 	record := map[string]interface{}{
 		"id":             strings.TrimSpace(queueID),
 		"sourceFilename": strings.TrimSpace(sourceFilename),
@@ -252,6 +282,7 @@ func (h *ProcessHandler) buildQueueCallRecord(
 	return record, nil
 }
 
+// Функция сохраняет запись очереди через callQueueService
 func (h *ProcessHandler) saveQueueRecord(record map[string]interface{}) string {
 	if h.callQueueService == nil || record == nil {
 		return ""
@@ -264,6 +295,7 @@ func (h *ProcessHandler) saveQueueRecord(record map[string]interface{}) string {
 	return mapString(saved["id"])
 }
 
+// Функция обновляет review и feedback у существующей записи очереди
 func (h *ProcessHandler) updateQueueReview(queueID string, review map[string]interface{}, feedback interface{}) {
 	if h.callQueueService == nil || strings.TrimSpace(queueID) == "" {
 		return

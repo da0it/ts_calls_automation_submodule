@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"orchestrator/internal/services"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ProcessCall godoc
@@ -28,11 +29,13 @@ import (
 func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	requestReceivedAt := time.Now().UTC()
 
+	// Загрузка и проверка аудио
 	file, originalName, ext, ok := h.loadAudioUpload(c)
 	if !ok {
 		return
 	}
 
+	// Файл сохраняется на диск
 	audioPath, cleanup, ok := h.saveAudioUpload(c, file, ext)
 	if !ok {
 		return
@@ -41,6 +44,7 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 		defer cleanup()
 	}
 
+	// Запуск основного конвейера обработки звонка
 	result, ok := h.runProcessPipeline(c, audioPath, ext, file.Size)
 	if !ok {
 		return
@@ -51,6 +55,7 @@ func (h *ProcessHandler) ProcessCall(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// Функция отвечает за получение и базовую проверку аудиофайла
 func (h *ProcessHandler) loadAudioUpload(c *gin.Context) (*multipart.FileHeader, string, string, bool) {
 	file, err := c.FormFile("audio")
 	if err != nil {
@@ -70,6 +75,7 @@ func (h *ProcessHandler) loadAudioUpload(c *gin.Context) (*multipart.FileHeader,
 		float64(file.Size)/1024/1024,
 	)
 
+	// Проверка на поступившего файла на доступные расширения
 	if !isAllowedAudioExt(ext) {
 		h.writeAudit(c, "call.process", "call", "", "failed", map[string]interface{}{
 			"reason":     "unsupported_audio_format",
@@ -95,6 +101,7 @@ func (h *ProcessHandler) loadAudioUpload(c *gin.Context) (*multipart.FileHeader,
 	return file, originalName, ext, true
 }
 
+// Функция saveAudioUpload сохраняет файл на диск
 func (h *ProcessHandler) saveAudioUpload(c *gin.Context, file *multipart.FileHeader, ext string) (string, func(), bool) {
 	requestID := c.GetString("request_id")
 	if requestID == "" {
@@ -127,12 +134,15 @@ func (h *ProcessHandler) saveAudioUpload(c *gin.Context, file *multipart.FileHea
 	return audioPath, cleanup, true
 }
 
+// Функция запускает основной конвейер обработки звонка
 func (h *ProcessHandler) runProcessPipeline(
 	c *gin.Context,
 	audioPath string,
 	ext string,
 	audioSize int64,
 ) (*services.ProcessCallResult, bool) {
+
+	// Вызов сервиса ProcessCall модуля управления
 	result, err := h.orchestrator.ProcessCall(audioPath)
 	if err != nil {
 		log.Printf("Processing failed: %v", err)
@@ -159,6 +169,7 @@ func (h *ProcessHandler) runProcessPipeline(
 	return result, true
 }
 
+// Функция finalizeProcessResult дополняет результат после успешной обработки.
 func (h *ProcessHandler) finalizeProcessResult(
 	result *services.ProcessCallResult,
 	requestReceivedAt time.Time,
@@ -173,6 +184,7 @@ func (h *ProcessHandler) finalizeProcessResult(
 	}
 }
 
+// Функция writeProcessSuccessAudit пишет аудит успешной обработки звонка.
 func (h *ProcessHandler) writeProcessSuccessAudit(
 	c *gin.Context,
 	result *services.ProcessCallResult,
@@ -203,11 +215,13 @@ func (h *ProcessHandler) writeProcessSuccessAudit(
 	})
 }
 
+// Простая функция проверки расширения.
 func isAllowedAudioExt(ext string) bool {
 	_, ok := allowedAudioFormats[ext]
 	return ok
 }
 
+// Вспомогательная функция для чтения булевой переменной окружения
 func envBool(name string, def bool) bool {
 	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
 	if raw == "" {

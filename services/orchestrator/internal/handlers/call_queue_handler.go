@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Функция получает список звонков из очереди.
 func (h *ProcessHandler) ListCalls(c *gin.Context) {
 	if h.callQueueService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "call queue service is not configured"})
@@ -38,6 +39,7 @@ func (h *ProcessHandler) ListCalls(c *gin.Context) {
 	})
 }
 
+// Функция DeleteCall удаляет один звонок по id
 func (h *ProcessHandler) DeleteCall(c *gin.Context) {
 	if h.callQueueService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "call queue service is not configured"})
@@ -62,6 +64,7 @@ func (h *ProcessHandler) DeleteCall(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "call deleted"})
 }
 
+// Функция ClearCalls полностью очищает очередь звонков.
 func (h *ProcessHandler) ClearCalls(c *gin.Context) {
 	if h.callQueueService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "call queue service is not configured"})
