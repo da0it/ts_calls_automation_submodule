@@ -6,25 +6,34 @@ import (
 	"time"
 )
 
+// Предопределенные константы для соглашения об уровне сервиса (SLA)
 const (
 	defaultSLAMinutes = 15
 	minSLAMinutes     = 1
 	maxSLAMinutes     = 24 * 60
 )
 
+// Модель настроек приложения
 type AppSettings struct {
-	SLAMinutes int       `json:"sla_minutes"`
-	UpdatedAt  time.Time `json:"updated_at"`
+
+	// Количество минут SLA
+	SLAMinutes int `json:"sla_minutes"`
+
+	// Дата и время последнего изменения настройки
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Сервис хранит подключение к БД
 type AppSettingsService struct {
 	db *sql.DB
 }
 
+// Функция-конструктор. Создает сервис настроек приложения
 func NewAppSettingsService(db *sql.DB) *AppSettingsService {
 	return &AppSettingsService{db: db}
 }
 
+// Метод создаёт таблицу app_settings и начальную запись с настройками.
 func (s *AppSettingsService) Migrate() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS app_settings (
@@ -43,6 +52,7 @@ func (s *AppSettingsService) Migrate() error {
 	return err
 }
 
+// Метод Get возвращает текущие настройки приложения
 func (s *AppSettingsService) Get() (*AppSettings, error) {
 	var settings AppSettings
 	err := s.db.QueryRow(
@@ -67,6 +77,7 @@ func (s *AppSettingsService) Get() (*AppSettings, error) {
 	return &settings, nil
 }
 
+// Метод UpdateSLA обновляет значение SLA
 func (s *AppSettingsService) UpdateSLA(minutes int) (*AppSettings, error) {
 	if minutes < minSLAMinutes || minutes > maxSLAMinutes {
 		return nil, fmt.Errorf("sla_minutes must be between %d and %d", minSLAMinutes, maxSLAMinutes)

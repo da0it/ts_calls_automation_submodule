@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Допустимые приоритеты
 var validPriorities = map[string]struct{}{
 	"low":      {},
 	"medium":   {},
@@ -19,12 +20,14 @@ var validPriorities = map[string]struct{}{
 	"critical": {},
 }
 
+// Структура описывает группу исполнителей
 type RoutingGroup struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 }
 
+// Структура описывает классы целей обращения
 type RoutingIntent struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
@@ -36,12 +39,14 @@ type RoutingIntent struct {
 	Keywords     []string `json:"keywords,omitempty"`
 }
 
+// Структура RoutingCatalog - общий каталог маршрутизации
 type RoutingCatalog struct {
 	Groups    []RoutingGroup  `json:"groups"`
 	Intents   []RoutingIntent `json:"intents"`
 	UpdatedAt string          `json:"updated_at,omitempty"`
 }
 
+// Внутренние структуры файлов json
 type routingGroupFileEntry struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
@@ -57,25 +62,35 @@ type routingIntentFileEntry struct {
 	Keywords     []string `json:"keywords,omitempty"`
 }
 
+// Структура для основного сервиса управления каталогом
 type RoutingConfigService struct {
 	intentsPath string
 	groupsPath  string
 	mu          sync.Mutex
 }
 
+// Функция - конструктор сервиса управления каталогом
 func NewRoutingConfigService(intentsPath, groupsPath string) *RoutingConfigService {
 	return &RoutingConfigService{
+
+		// Путь к файлу с целями обращения
 		intentsPath: intentsPath,
-		groupsPath:  groupsPath,
+
+		// Путь к файлу с группами
+		groupsPath: groupsPath,
 	}
 }
 
+// Метод возвращает текущий каталог маршрутизации
 func (s *RoutingConfigService) GetCatalog() (*RoutingCatalog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Загружает каталог из файлов.
 	return s.loadCatalogLocked()
 }
 
+// Метод полностью заменяет каталог маршрутизации. На вход получает новый каталог.
 func (s *RoutingConfigService) ReplaceCatalog(catalog *RoutingCatalog) (*RoutingCatalog, error) {
 	if catalog == nil {
 		return nil, errors.New("catalog is required")
@@ -99,6 +114,7 @@ func (s *RoutingConfigService) ReplaceCatalog(catalog *RoutingCatalog) (*Routing
 	return s.loadCatalogLocked()
 }
 
+// Метод добавляет новую группу исполнителей
 func (s *RoutingConfigService) AddGroup(group RoutingGroup) (*RoutingCatalog, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -127,6 +143,7 @@ func (s *RoutingConfigService) AddGroup(group RoutingGroup) (*RoutingCatalog, er
 	return s.loadCatalogLocked()
 }
 
+// Удаление группы исполнителей
 func (s *RoutingConfigService) DeleteGroup(groupID string) (*RoutingCatalog, error) {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
@@ -171,6 +188,7 @@ func (s *RoutingConfigService) DeleteGroup(groupID string) (*RoutingCatalog, err
 	return s.loadCatalogLocked()
 }
 
+// Удаление цели из каталога
 func (s *RoutingConfigService) DeleteIntent(intentID string) (*RoutingCatalog, error) {
 	intentID = strings.TrimSpace(intentID)
 	if intentID == "" {
@@ -208,6 +226,7 @@ func (s *RoutingConfigService) DeleteIntent(intentID string) (*RoutingCatalog, e
 	return s.loadCatalogLocked()
 }
 
+// Добавить пример к классу цели обращения
 func (s *RoutingConfigService) AddExampleToIntent(intentID, example string, maxExamples int) (bool, error) {
 	intentID = strings.TrimSpace(intentID)
 	example = normalizeExampleText(example)
@@ -263,6 +282,7 @@ func (s *RoutingConfigService) AddExampleToIntent(intentID, example string, maxE
 	return true, nil
 }
 
+// Метод проверяет, что intent и group из feedback существуют в каталоге.
 func (s *RoutingConfigService) ValidateFeedbackTarget(intentID, groupID string) error {
 	intentID = strings.TrimSpace(intentID)
 	groupID = strings.TrimSpace(groupID)
@@ -305,6 +325,7 @@ func (s *RoutingConfigService) ValidateFeedbackTarget(intentID, groupID string) 
 	return nil
 }
 
+// Внутренний метод загрузки каталога из JSON-файлов
 func (s *RoutingConfigService) loadCatalogLocked() (*RoutingCatalog, error) {
 	groupsPayload := map[string]routingGroupFileEntry{}
 	if err := readJSONFile(s.groupsPath, &groupsPayload); err != nil {
@@ -359,6 +380,7 @@ func (s *RoutingConfigService) loadCatalogLocked() (*RoutingCatalog, error) {
 	return catalog, nil
 }
 
+// Внутренний метод сохранения каталога в JSON-файлы
 func (s *RoutingConfigService) saveCatalogLocked(catalog *RoutingCatalog) error {
 	groupsPayload := make(map[string]routingGroupFileEntry, len(catalog.Groups))
 	for _, group := range catalog.Groups {
@@ -392,6 +414,7 @@ func (s *RoutingConfigService) saveCatalogLocked(catalog *RoutingCatalog) error 
 	return nil
 }
 
+// Проверяет корректность всего каталога
 func validateCatalog(catalog *RoutingCatalog) error {
 	if catalog == nil {
 		return errors.New("catalog is nil")
@@ -448,6 +471,7 @@ func validateCatalog(catalog *RoutingCatalog) error {
 	return nil
 }
 
+// Проверяет, что в новом каталоге не появились новые intent id
 func validateNoNewIntentIDs(current, next *RoutingCatalog) error {
 	if current == nil || next == nil {
 		return nil
@@ -474,6 +498,7 @@ func validateNoNewIntentIDs(current, next *RoutingCatalog) error {
 	return nil
 }
 
+// Очищает поля группы от пробелов
 func normalizeGroup(group RoutingGroup) RoutingGroup {
 	group.ID = strings.TrimSpace(group.ID)
 	group.Title = strings.TrimSpace(group.Title)
@@ -481,6 +506,7 @@ func normalizeGroup(group RoutingGroup) RoutingGroup {
 	return group
 }
 
+// Функция приводит intent к стандартному виду перед валидацией и сохранением
 func normalizeIntent(intent RoutingIntent) RoutingIntent {
 	intent.ID = strings.TrimSpace(intent.ID)
 	intent.Title = strings.TrimSpace(intent.Title)
@@ -535,11 +561,13 @@ func normalizeIntent(intent RoutingIntent) RoutingIntent {
 	return intent
 }
 
+// Функция нормализует текст обучающего примера.
 func normalizeExampleText(value string) string {
 	parts := strings.Fields(strings.TrimSpace(value))
 	return strings.Join(parts, " ")
 }
 
+// Универсальная функция чтения JSON-файла
 func readJSONFile(path string, out any) error {
 	payload, err := os.ReadFile(path)
 	if err != nil {
@@ -551,6 +579,7 @@ func readJSONFile(path string, out any) error {
 	return nil
 }
 
+// Функция записывает JSON-файл атомарно
 func writeJSONFileAtomic(path string, payload any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err

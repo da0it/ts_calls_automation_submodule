@@ -11,11 +11,13 @@ import (
 	"time"
 )
 
+// Допустимые решения оператора
 var validReviewDecisions = map[string]struct{}{
 	"accepted": {},
 	"rejected": {},
 }
 
+// Допустимые виды ошибок
 var validErrorTypes = map[string]struct{}{
 	"none":               {},
 	"wrong_intent":       {},
@@ -27,6 +29,7 @@ var validErrorTypes = map[string]struct{}{
 	"other":              {},
 }
 
+// Структура описывает то, что предложил интеллектуальный маршрутизатор
 type FeedbackAISuggestion struct {
 	IntentID   string  `json:"intent_id"`
 	Confidence float64 `json:"confidence,omitempty"`
@@ -34,12 +37,14 @@ type FeedbackAISuggestion struct {
 	Group      string  `json:"group,omitempty"`
 }
 
+// Финальный вариант маршрутизации, который подтвердил или указал оператор
 type FeedbackFinalRouting struct {
 	IntentID string `json:"intent_id"`
 	Priority string `json:"priority,omitempty"`
 	Group    string `json:"group"`
 }
 
+// Сегмент транскрипции, который можно сохранить вместе с feedback
 type FeedbackTranscriptSegment struct {
 	Start   float64 `json:"start,omitempty"`
 	End     float64 `json:"end,omitempty"`
@@ -48,6 +53,7 @@ type FeedbackTranscriptSegment struct {
 	Text    string  `json:"text,omitempty"`
 }
 
+// Входной запрос на сохранение обратной связи
 type RoutingFeedbackRequest struct {
 	CallID             string                      `json:"call_id"`
 	SourceFilename     string                      `json:"source_filename,omitempty"`
@@ -61,6 +67,7 @@ type RoutingFeedbackRequest struct {
 	Final              FeedbackFinalRouting        `json:"final"`
 }
 
+// Нормализованная запись, сохраняемая в файл для дальнейшего дообучения
 type RoutingFeedbackRecord struct {
 	ID                 string                      `json:"id"`
 	CreatedAt          string                      `json:"created_at"`
@@ -77,6 +84,7 @@ type RoutingFeedbackRecord struct {
 	AutoLearnMessage   string                      `json:"auto_learn_message,omitempty"`
 }
 
+// Основной сервис
 type RoutingFeedbackService struct {
 	feedbackPath   string
 	autoLearn      bool
@@ -85,6 +93,7 @@ type RoutingFeedbackService struct {
 	mu             sync.Mutex
 }
 
+// Функция-конструктор создает сервис feedback
 func NewRoutingFeedbackService(
 	feedbackPath string,
 	autoLearn bool,
@@ -102,6 +111,9 @@ func NewRoutingFeedbackService(
 	}
 }
 
+// Метод SaveFeedback нормализует и валидирует входной feedback, при необходимости применяет auto-learn
+//
+//	записывает feedback в JSONL-файл и возвращает сохранённую запись.
 func (s *RoutingFeedbackService) SaveFeedback(input RoutingFeedbackRequest) (*RoutingFeedbackRecord, error) {
 	record, err := s.normalizeAndValidate(input)
 	if err != nil {
@@ -171,6 +183,7 @@ func (s *RoutingFeedbackService) SaveFeedback(input RoutingFeedbackRequest) (*Ro
 	return record, nil
 }
 
+// Функция выполняет нормализацию и валидацию запроса на добавление записи в фидбек
 func (s *RoutingFeedbackService) normalizeAndValidate(input RoutingFeedbackRequest) (*RoutingFeedbackRecord, error) {
 	decision := strings.ToLower(strings.TrimSpace(input.Decision))
 	if _, ok := validReviewDecisions[decision]; !ok {
@@ -209,6 +222,7 @@ func (s *RoutingFeedbackService) normalizeAndValidate(input RoutingFeedbackReque
 		callID = "unknown-call"
 	}
 
+	// Создание записи фидбека
 	record := &RoutingFeedbackRecord{
 		ID:             fmt.Sprintf("feedback-%d", time.Now().UnixNano()),
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339Nano),
@@ -238,6 +252,7 @@ func (s *RoutingFeedbackService) normalizeAndValidate(input RoutingFeedbackReque
 	return record, nil
 }
 
+// Далее приведены вспомогательные функции для нормализации текста
 func normalizePriorityValue(value string) string {
 	p := strings.ToLower(strings.TrimSpace(value))
 	if p == "normal" {

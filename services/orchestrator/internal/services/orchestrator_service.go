@@ -10,6 +10,7 @@ import (
 	"orchestrator/internal/clients"
 )
 
+// Статусы обработки звонка
 const (
 	ProcessStatusCompleted             = "completed"
 	ProcessStatusAwaitingRoutingReview = "awaiting_routing_review"
@@ -19,6 +20,7 @@ const (
 	legacySpamIntentID                 = "spam"
 )
 
+// Структура сервиса, хранит клиентов ко всем этапам обработки
 type OrchestratorService struct {
 	transcriptionClient              *clients.TranscriptionClient
 	routingClient                    *clients.RoutingClient
@@ -27,6 +29,7 @@ type OrchestratorService struct {
 	routingReviewConfidenceThreshold float64
 }
 
+// Функция-конструктор, создает основной сервис модуля управления
 func NewOrchestratorService(
 	transcriptionClient *clients.TranscriptionClient,
 	routingClient *clients.RoutingClient,
@@ -34,6 +37,8 @@ func NewOrchestratorService(
 	entityClient *clients.EntityClient,
 	routingReviewConfidenceThreshold float64,
 ) *OrchestratorService {
+
+	// Нормализация порогов уверенности
 	if routingReviewConfidenceThreshold < 0.0 {
 		routingReviewConfidenceThreshold = 0.0
 	}
@@ -49,6 +54,7 @@ func NewOrchestratorService(
 	}
 }
 
+// Структура итогового результата обработки звонка
 type ProcessCallResult struct {
 	QueueID           string                         `json:"queue_id,omitempty"`
 	CallID            string                         `json:"call_id"`
@@ -64,6 +70,8 @@ type ProcessCallResult struct {
 	ProcessedAt       string                         `json:"processed_at,omitempty"`
 }
 
+// Структура продолжения после ручной проверки. Эта структура используется, когда обработка была остановлена со статусом:
+// awaiting_routing_review
 type ContinueAfterRoutingReviewInput struct {
 	CallID         string
 	SourceFilename string
@@ -72,6 +80,7 @@ type ContinueAfterRoutingReviewInput struct {
 	Routing        *clients.RoutingResponse
 }
 
+// Эта структура используется, когда звонок был признан спамом, но оператор решил, что это не спам, и разрешил продолжить обработку.
 type ContinueAfterSpamOverrideInput struct {
 	CallID         string
 	SourceFilename string
@@ -80,6 +89,7 @@ type ContinueAfterSpamOverrideInput struct {
 	Routing        *clients.RoutingResponse
 }
 
+// Функция emptyEntities создает пустой объект сущностей
 func emptyEntities() *clients.Entities {
 	return &clients.Entities{
 		Persons:      []clients.ExtractedEntity{},
@@ -92,6 +102,8 @@ func emptyEntities() *clients.Entities {
 	}
 }
 
+// Функция приводит Entities к безопасному виду. Если весь объект nil, возвращает пустые сущности.
+// Если отдельные поля nil, заменяет их на пустые срезы.
 func normalizeEntities(e *clients.Entities) *clients.Entities {
 	if e == nil {
 		return emptyEntities()
@@ -120,6 +132,7 @@ func normalizeEntities(e *clients.Entities) *clients.Entities {
 	return e
 }
 
+// Функция проверяет, заблокирован ли запрос как спам
 func isSpamBlocked(spamCheck *clients.SpamCheckResponse) bool {
 	if spamCheck == nil {
 		return false
@@ -127,11 +140,13 @@ func isSpamBlocked(spamCheck *clients.SpamCheckResponse) bool {
 	return spamCheck.Status == "block" || spamCheck.Status == "review"
 }
 
+// Функция проверяет, является ли intent спамовым.
 func isSpamIntent(intentID string) bool {
 	raw := strings.ToLower(strings.TrimSpace(intentID))
 	return raw == spamIntentID || raw == legacySpamIntentID
 }
 
+// Функция проверяет, нужно ли остановить обработку из-за спама
 func isSpamBlockedRouting(routing *clients.RoutingResponse) bool {
 	if routing == nil {
 		return false
@@ -139,6 +154,7 @@ func isSpamBlockedRouting(routing *clients.RoutingResponse) bool {
 	return isSpamIntent(routing.IntentID) || isSpamBlocked(routing.SpamCheck)
 }
 
+// Функция проверяет специальный случай: конфликт между spam и non-spam классификацией.
 func isSpamConflictReview(spamCheck *clients.SpamCheckResponse) bool {
 	if spamCheck == nil {
 		return false
@@ -149,6 +165,7 @@ func isSpamConflictReview(spamCheck *clients.SpamCheckResponse) bool {
 	return strings.HasPrefix(strings.TrimSpace(spamCheck.Reason), "spam_nonspam_conflict:")
 }
 
+// Функция проверяет, нужна ли ручная проверка из-за низкой уверенности классификатора.
 func isRoutingReviewRequired(routing *clients.RoutingResponse, threshold float64) bool {
 	if routing == nil || threshold <= 0.0 {
 		return false
@@ -157,6 +174,7 @@ func isRoutingReviewRequired(routing *clients.RoutingResponse, threshold float64
 	return confidence >= 0.0 && confidence < threshold
 }
 
+// Функция создает копию SpamCheckResponse.
 func cloneSpamCheck(spamCheck *clients.SpamCheckResponse) *clients.SpamCheckResponse {
 	if spamCheck == nil {
 		return nil
@@ -165,6 +183,7 @@ func cloneSpamCheck(spamCheck *clients.SpamCheckResponse) *clients.SpamCheckResp
 	return &copied
 }
 
+// Функция проверяет, пустой ли транскрипт.
 func isTranscriptEmpty(transcript *clients.TranscriptionResponse) bool {
 	if transcript == nil {
 		return true
@@ -172,6 +191,7 @@ func isTranscriptEmpty(transcript *clients.TranscriptionResponse) bool {
 	return len(transcript.Segments) == 0
 }
 
+// Функция ensureTranscriptCallID гарантирует, что у транскрипта есть CallID
 func ensureTranscriptCallID(transcript *clients.TranscriptionResponse, fallback string) string {
 	if transcript == nil {
 		if fallback == "" {
@@ -188,6 +208,7 @@ func ensureTranscriptCallID(transcript *clients.TranscriptionResponse, fallback 
 	return transcript.CallID
 }
 
+// Вспомогательная функция для сборки итогового результата обработки
 func buildProcessResult(
 	status string,
 	transcript *clients.TranscriptionResponse,
@@ -210,6 +231,7 @@ func buildProcessResult(
 	}
 }
 
+// Вспомогательная функция, достает спам-ответ из ответа маршрутизатора
 func spamCheckFromRouting(routing *clients.RoutingResponse) *clients.SpamCheckResponse {
 	if routing == nil {
 		return nil
@@ -217,6 +239,7 @@ func spamCheckFromRouting(routing *clients.RoutingResponse) *clients.SpamCheckRe
 	return routing.SpamCheck
 }
 
+// Функция вызывает обычную маршрутизацию.
 func (s *OrchestratorService) routeTranscript(transcript *clients.TranscriptionResponse) (*clients.RoutingResponse, error) {
 	if transcript == nil {
 		return nil, fmt.Errorf("transcript is required")
@@ -224,6 +247,7 @@ func (s *OrchestratorService) routeTranscript(transcript *clients.TranscriptionR
 	return s.routingClient.Route(transcript.CallID, transcript.Segments)
 }
 
+// Функция вызывает маршрутизацию с пропуском класса спам (после ручного обхода блокировки спама).
 func (s *OrchestratorService) routeTranscriptSkippingSpam(transcript *clients.TranscriptionResponse) (*clients.RoutingResponse, error) {
 	if transcript == nil {
 		return nil, fmt.Errorf("transcript is required")
@@ -231,6 +255,7 @@ func (s *OrchestratorService) routeTranscriptSkippingSpam(transcript *clients.Tr
 	return s.routingClient.RouteSkippingSpam(transcript.CallID, transcript.Segments)
 }
 
+// Метод завершает обработку нормального не-спам звонка.
 func (s *OrchestratorService) completeNonSpamCall(
 	transcript *clients.TranscriptionResponse,
 	routing *clients.RoutingResponse,
@@ -275,7 +300,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 
 	log.Printf("Starting call processing for audio: %s", audioPath)
 
-	// 1. Транскрибация
+	// Транскрибация
 	log.Println("Step 1/5: Transcribing audio...")
 	stepStart := time.Now()
 	transcript, err := s.transcriptionClient.Transcribe(audioPath)
@@ -292,7 +317,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 		return result, nil
 	}
 
-	// 2. Маршрутизация
+	// Маршрутизация
 	log.Println("Step 2/5: Routing call...")
 	stepStart = time.Now()
 	routing, err := s.routeTranscript(transcript)
@@ -331,6 +356,7 @@ func (s *OrchestratorService) ProcessCall(audioPath string) (*ProcessCallResult,
 	return s.completeNonSpamCall(transcript, routing, ProcessStatusCompleted, startTime, processingTime)
 }
 
+// Метод продолжает обработку после ручной проверки маршрутизации.
 func (s *OrchestratorService) ContinueAfterRoutingReview(input ContinueAfterRoutingReviewInput) (*ProcessCallResult, error) {
 	startTime := time.Now()
 	processingTime := make(map[string]float64)
@@ -358,6 +384,7 @@ func (s *OrchestratorService) ContinueAfterRoutingReview(input ContinueAfterRout
 	return s.completeNonSpamCall(input.Transcript, input.Routing, ProcessStatusCompleted, startTime, processingTime)
 }
 
+// Метод используется, если звонок был определён как спам, но оператор решил, что это не спам.
 func (s *OrchestratorService) ContinueAfterSpamOverride(input ContinueAfterSpamOverrideInput) (*ProcessCallResult, error) {
 	startTime := time.Now()
 	processingTime := make(map[string]float64)
@@ -411,7 +438,6 @@ func (s *OrchestratorService) ContinueAfterSpamOverride(input ContinueAfterSpamO
 
 // HealthCheck проверяет доступность всех сервисов
 func (s *OrchestratorService) HealthCheck() map[string]string {
-	// TODO: можно добавить проверку health endpoints всех сервисов
 	return map[string]string{
 		"orchestrator":  "healthy",
 		"transcription": "unknown",

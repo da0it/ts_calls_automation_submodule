@@ -7,24 +7,49 @@ import (
 	"time"
 )
 
+// Входная структура события, которое нужно записать в аудит
 type AuditEvent struct {
-	RequestID     string
-	ActorUserID   *int64
+
+	// Идентификатор HTTP-запроса
+	RequestID string
+
+	// ID пользователя, который выполнил действие.
+	ActorUserID *int64
+
+	// Имя пользователя, который выполнил действие
 	ActorUsername string
-	ActorRole     string
-	EventType     string
-	ResourceType  string
-	ResourceID    string
-	Outcome       string
-	Details       map[string]interface{}
-	IPAddress     string
-	UserAgent     string
+
+	// Роль пользователя на момент события
+	ActorRole string
+
+	// Тип события
+	EventType string
+
+	// Тип ресурса, над которым выполнялось действие
+	ResourceType string
+
+	// Идентификатор конкретного ресурса
+	ResourceID string
+
+	// Результат действия
+	Outcome string
+
+	// Дополнительные детали события
+	Details map[string]interface{}
+
+	// IP-адрес клиента
+	IPAddress string
+
+	// User-Agent клиента
+	UserAgent string
 }
 
+// Структура AuditService хранит подключение к БД
 type AuditService struct {
 	db *sql.DB
 }
 
+// Структура записи аудита, которая возвращается наружу через API.
 type AuditEventRecord struct {
 	ID            int64                  `json:"id"`
 	CreatedAt     time.Time              `json:"created_at"`
@@ -41,10 +66,12 @@ type AuditEventRecord struct {
 	UserAgent     string                 `json:"user_agent"`
 }
 
+// Функция-конструктор создает сервис аудита на основе подключения к БД
 func NewAuditService(db *sql.DB) *AuditService {
 	return &AuditService{db: db}
 }
 
+// Функция Migrate создает таблицу audit_events и индексы
 func (s *AuditService) Migrate() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS audit_events (
@@ -71,6 +98,7 @@ func (s *AuditService) Migrate() error {
 	return err
 }
 
+// Главный метод записи события аудита. Принимает AuditEvent, валидирует его, сериализует детали и сохраняет запись в БД.
 func (s *AuditService) LogEvent(event AuditEvent) error {
 	if event.EventType == "" {
 		return fmt.Errorf("event_type is required")
@@ -82,6 +110,7 @@ func (s *AuditService) LogEvent(event AuditEvent) error {
 		event.Details = map[string]interface{}{}
 	}
 
+	// Сериализация details
 	detailsRaw, err := json.Marshal(event.Details)
 	if err != nil {
 		return fmt.Errorf("marshal audit details: %w", err)
@@ -119,6 +148,7 @@ func (s *AuditService) LogEvent(event AuditEvent) error {
 	return nil
 }
 
+// Метод возвращает список событий аудита с фильтрацией и пагинацией
 func (s *AuditService) ListEvents(limit, offset int, eventType, outcome, resourceType string) ([]AuditEventRecord, error) {
 	if limit <= 0 {
 		limit = 100
@@ -130,6 +160,7 @@ func (s *AuditService) ListEvents(limit, offset int, eventType, outcome, resourc
 		offset = 0
 	}
 
+	// SQL-запрос списка событий
 	query := `
 		SELECT
 			id,
@@ -160,6 +191,8 @@ func (s *AuditService) ListEvents(limit, offset int, eventType, outcome, resourc
 	defer rows.Close()
 
 	events := make([]AuditEventRecord, 0, limit)
+
+	// Чтение строк. Для каждой строки создаются:итоговая запись аудита, nullable actor_user_id, JSONB details в виде байтов
 	for rows.Next() {
 		var rec AuditEventRecord
 		var actorID sql.NullInt64

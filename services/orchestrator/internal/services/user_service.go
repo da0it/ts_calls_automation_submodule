@@ -6,25 +6,29 @@ import (
 	"log"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"orchestrator/internal/models"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
+// Структура, отвечающая за хранение подключения к базе данных
 type UserService struct {
 	db *sql.DB
 }
 
+// Ошибки сервиса
 var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrAccountPending     = errors.New("account pending approval")
 	ErrAccountInactive    = errors.New("account inactive")
 )
 
+// Конструктор сервиса пользователей. Принимает подключение и возвращает готовый сервис
 func NewUserService(db *sql.DB) *UserService {
 	return &UserService{db: db}
 }
 
-// Migrate creates the users table if it does not exist.
+// Миграция создает таблицу пользователей, если она еще не создана
 func (s *UserService) Migrate() error {
 	query := `
 	CREATE TABLE IF NOT EXISTS users (
@@ -50,15 +54,19 @@ func (s *UserService) Migrate() error {
 	ALTER TABLE users ALTER COLUMN is_approved SET DEFAULT TRUE;
 	CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 	`
+
+	// Выполнение SQL-запроса
 	_, err := s.db.Exec(query)
 	return err
 }
 
-// SeedAdmin creates the admin user if it does not already exist.
+// Функция создает пользователя-админа, если он не существует в таблице
 func (s *UserService) SeedAdmin(username, password string) error {
 	if password == "" {
 		return nil
 	}
+
+	// Поиск пользователя по юзернейму.
 	existing, err := s.GetByUsername(username)
 	if err != nil {
 		return err
@@ -67,6 +75,8 @@ func (s *UserService) SeedAdmin(username, password string) error {
 		log.Printf("Admin user '%s' already exists, skipping seed", username)
 		return nil
 	}
+
+	// Если пользователь не найден, он создается с переданным юзернеймом и паролем.
 	_, err = s.create(username, password, models.RoleAdmin, true, true)
 	if err != nil {
 		return err
@@ -75,8 +85,9 @@ func (s *UserService) SeedAdmin(username, password string) error {
 	return nil
 }
 
-// Authenticate verifies credentials and returns the user.
+// Функция проверяет введенные юзернейм и пароль, и возвращает пользователя
 func (s *UserService) Authenticate(username, password string) (*models.User, error) {
+	// Поиск пользователя в таблице
 	user, err := s.GetByUsername(username)
 	if err != nil {
 		return nil, err
@@ -84,21 +95,29 @@ func (s *UserService) Authenticate(username, password string) (*models.User, err
 	if user == nil {
 		return nil, ErrInvalidCredentials
 	}
+
+	// Сравнение хэшей введенного пароля и сохраненного хэша пароля в базе данных
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
+
+	// Проверка, одобрен ли пользователь администратором (без этого оператор не получит доступ к системе)
 	if !user.IsApproved {
 		return nil, ErrAccountPending
 	}
+
+	// Проверка активирован ли пользовательский аккаунт. Не активные аккаунты не имеют доступа к системе.
 	if !user.IsActive {
 		return nil, ErrAccountInactive
 	}
 	return user, nil
 }
 
-// GetByID returns a user by ID, or nil if not found.
+// Функция возвращает пользователя по введенному идентификатору, или nil если он не найден
 func (s *UserService) GetByID(id int64) (*models.User, error) {
 	var u models.User
+
+	// Выполнение SQL-запроса
 	err := s.db.QueryRow(
 		`SELECT id, username, password, role, is_active, is_approved, created_at, updated_at FROM users WHERE id = $1`,
 		id,
@@ -112,7 +131,7 @@ func (s *UserService) GetByID(id int64) (*models.User, error) {
 	return &u, nil
 }
 
-// GetByUsername returns a user by username, or nil if not found.
+// Функция возвращает пользователя по введенному юзернейму, или nil если пользователь не найден.
 func (s *UserService) GetByUsername(username string) (*models.User, error) {
 	var u models.User
 	err := s.db.QueryRow(
@@ -129,16 +148,20 @@ func (s *UserService) GetByUsername(username string) (*models.User, error) {
 }
 
 // Create inserts a new user with a bcrypt-hashed password.
+// Вставка нового пользователя в базу данных сразу с активным и подтвержденным статусом
 func (s *UserService) Create(username, password string, role models.Role) (*models.User, error) {
 	return s.create(username, password, role, true, true)
 }
 
-// RegisterOperator creates a new operator account in inactive state.
+// Метод используется для самостоятельной регистрации оператора
 func (s *UserService) RegisterOperator(username, password string) (*models.User, error) {
 	return s.create(username, password, models.RoleOperator, false, false)
 }
 
+// Общий внутренний метод создания пользователя.
 func (s *UserService) create(username, password string, role models.Role, isActive bool, isApproved bool) (*models.User, error) {
+
+	// Блок валидации имени пользователя, пароля, и роли в системе
 	if len(username) < 3 || len(username) > 64 {
 		return nil, errors.New("username must be 3-64 characters")
 	}
@@ -149,11 +172,13 @@ func (s *UserService) create(username, password string, role models.Role, isActi
 		return nil, errors.New("role must be 'operator' or 'admin'")
 	}
 
+	// Преобразование пароля в bcrypt хэш. В базу данных далее сохраняется именно хэш
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
 
+	// Вставка пользователя
 	var u models.User
 	err = s.db.QueryRow(
 		`INSERT INTO users (username, password, role, is_active, is_approved) VALUES ($1, $2, $3, $4, $5)
@@ -166,7 +191,7 @@ func (s *UserService) create(username, password string, role models.Role, isActi
 	return &u, nil
 }
 
-// List returns all users.
+// Функция возвращает список всех пользователей
 func (s *UserService) List() ([]models.User, error) {
 	rows, err := s.db.Query(
 		`SELECT id, username, role, is_active, is_approved, created_at, updated_at FROM users ORDER BY id`,
@@ -187,8 +212,10 @@ func (s *UserService) List() ([]models.User, error) {
 	return users, rows.Err()
 }
 
-// ApproveOperator activates a pending operator account.
+// Функция активирует оператора из статуса ожидания
 func (s *UserService) ApproveOperator(id int64) (*models.User, error) {
+
+	// Поиск пользователя по идентификатору
 	user, err := s.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -203,6 +230,7 @@ func (s *UserService) ApproveOperator(id int64) (*models.User, error) {
 		return user, nil
 	}
 
+	// Обновление статуса пользователя
 	var updated models.User
 	err = s.db.QueryRow(
 		`UPDATE users
@@ -226,7 +254,7 @@ func (s *UserService) ApproveOperator(id int64) (*models.User, error) {
 	return &updated, nil
 }
 
-// DeactivateOperator marks an approved operator account as inactive.
+// Функция для изменения статуса аккаунта подтвержденного оператора в неактивное состояние
 func (s *UserService) DeactivateOperator(id int64) (*models.User, error) {
 	user, err := s.GetByID(id)
 	if err != nil {
@@ -268,7 +296,7 @@ func (s *UserService) DeactivateOperator(id int64) (*models.User, error) {
 	return &updated, nil
 }
 
-// Delete removes a user by ID. Prevents deleting the last admin.
+// Удаляет пользователя. Принимает идентификатор пользователя и ID текущего пользователя
 func (s *UserService) Delete(id int64, currentUserID int64) error {
 	if id == currentUserID {
 		return errors.New("cannot delete yourself")
@@ -297,7 +325,7 @@ func (s *UserService) Delete(id int64, currentUserID int64) error {
 	return err
 }
 
-// UpdatePassword changes a user's password.
+// Функция позволяет изменить пароль пользователя
 func (s *UserService) UpdatePassword(id int64, newPassword string) error {
 	if len(newPassword) < 6 {
 		return errors.New("password must be at least 6 characters")
