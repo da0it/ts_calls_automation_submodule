@@ -14,23 +14,27 @@ import (
 	"google.golang.org/grpc"
 )
 
+// TranscriptionClient хранит gRPC-подключение и protobuf-клиент для transcription-service
 type TranscriptionClient struct {
 	conn   *grpc.ClientConn
 	client callprocessingv1.TranscriptionServiceClient
 }
 
+// Функция создает gRPC-клиент transcription-service
 func NewTranscriptionClient(addr string) (*TranscriptionClient, error) {
 	conn, err := grpcConnForService(addr, "TRANSCRIPTION_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial transcription grpc: %w", err)
 	}
 
+	// Создаётся объект TranscriptionClient
 	return &TranscriptionClient{
 		conn:   conn,
 		client: callprocessingv1.NewTranscriptionServiceClient(conn),
 	}, nil
 }
 
+// Segment описывает один фрагмент распознанного диалога
 type Segment struct {
 	Start   float64 `json:"start"`
 	End     float64 `json:"end"`
@@ -39,6 +43,7 @@ type Segment struct {
 	Text    string  `json:"text"`
 }
 
+// Результат транскрибации, который transcription client возвращает orchestrator
 type TranscriptionResponse struct {
 	CallID      string                 `json:"call_id"`
 	Segments    []Segment              `json:"segments"`
@@ -46,6 +51,7 @@ type TranscriptionResponse struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
+// Метод транскрибации. Принимает путь к аудиофайлу, отправляет файл в transcription-service и возвращает распознанную транскрипцию
 func (c *TranscriptionClient) Transcribe(audioPath string) (*TranscriptionResponse, error) {
 	audioData, err := os.ReadFile(audioPath)
 	if err != nil {
@@ -92,6 +98,7 @@ func (c *TranscriptionClient) Transcribe(audioPath string) (*TranscriptionRespon
 		result.Metadata = map[string]interface{}{}
 	}
 
+	// protobuf-сегменты преобразуются во внутренние Segment
 	for _, seg := range resp.GetTranscript().GetSegments() {
 		result.Segments = append(result.Segments, Segment{
 			Start:   seg.GetStart(),
@@ -101,10 +108,11 @@ func (c *TranscriptionClient) Transcribe(audioPath string) (*TranscriptionRespon
 			Text:    seg.GetText(),
 		})
 	}
-
+	// Возвращается готовый TranscriptionResponse
 	return result, nil
 }
 
+// Метод закрывает gRPC-соединение с transcription-service
 func (c *TranscriptionClient) Close() error {
 	if c == nil || c.conn == nil {
 		return nil

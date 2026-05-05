@@ -10,32 +10,68 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config — структура, в которую собираются все настройки модуля управления
 type Config struct {
-	HTTPPort           string
-	GRPCPort           string
-	HTTPTLSEnabled     bool
-	HTTPTLSCertFile    string
-	HTTPTLSKeyFile     string
-	GRPCTLSEnabled     bool
-	GRPCTLSCertFile    string
-	GRPCTLSKeyFile     string
+
+	// Порт HTTP-сервера
+	HTTPPort string
+
+	// Порт gRPC-сервера orchestrator
+	GRPCPort string
+
+	// Настройки TLS для HTTP-сервера
+	HTTPTLSEnabled  bool
+	HTTPTLSCertFile string
+	HTTPTLSKeyFile  string
+
+	// Настройки TLS для gRPC-сервера orchestrator
+	GRPCTLSEnabled  bool
+	GRPCTLSCertFile string
+	GRPCTLSKeyFile  string
+
+	// Список разрешённых origin для браузерных запросов
 	CORSAllowedOrigins string
 
-	// gRPC адреса сервисов
-	TranscriptionGRPCAddr            string
-	RoutingGRPCAddr                  string
-	TicketGRPCAddr                   string
-	TicketRPCTimeoutSeconds          int
-	EntityServiceURL                 string
+	// gRPC адреса зависимых сервисов
+	// Адрес gRPC-сервиса транскрибации
+	TranscriptionGRPCAddr string
+
+	// Адрес gRPC-сервиса маршрутизации.
+	RoutingGRPCAddr string
+
+	// Адрес gRPC ticket-service
+	TicketGRPCAddr string
+
+	// Таймаут gRPC-вызова к ticket-service.
+	TicketRPCTimeoutSeconds int
+
+	// Адрес сервиса извлечения сущностей
+	EntityServiceURL string
+
+	// Порог уверенности маршрутизации
 	RoutingReviewConfidenceThreshold float64
-	RoutingIntentsPath               string
-	RoutingGroupsPath                string
-	RoutingFeedbackPath              string
-	RoutingAutoLearn                 bool
-	RoutingAutoLearnLimit            int
-	RouterAdminURL                   string
-	RouterAdminToken                 string
-	RouterAdminTimeoutSeconds        int
+
+	// Пути к конфигурационным файлам маршрутизации
+	RoutingIntentsPath string
+	RoutingGroupsPath  string
+
+	// Путь к файлу обратной связи по маршрутизации
+	RoutingFeedbackPath string
+
+	// Флаг автоматического дообучения или автоматической передачи накопленных исправлений в router
+	RoutingAutoLearn bool
+
+	// Лимит количества накопленных записей обратной связи, после которого может запускаться auto-learn
+	RoutingAutoLearnLimit int
+
+	//
+	RouterAdminURL string
+
+	// URL административного API router-сервиса.
+	RouterAdminToken string
+
+	// Токен для доступа к admin API router-сервиса
+	RouterAdminTimeoutSeconds int
 
 	// Auth / DB
 	DatabaseURL    string
@@ -45,9 +81,11 @@ type Config struct {
 	AdminPassword  string
 }
 
+// Функция Load загружает конфигурацию и возвращает указатель на структуру Config.
 func Load() *Config {
 	_ = godotenv.Load()
 
+	// Создание объекта конфигурации
 	cfg := &Config{
 		HTTPPort:                         getEnv("HTTP_PORT", getEnv("SERVER_PORT", "8000")),
 		GRPCPort:                         getEnv("GRPC_PORT", "9000"),
@@ -88,6 +126,7 @@ func Load() *Config {
 	return cfg
 }
 
+// Функция печатает настройки orchestrator при создании объекта конфигурации
 func logConfig(cfg *Config) {
 	log.Println("Orchestrator config loaded:")
 	items := []struct {
@@ -121,6 +160,7 @@ func logConfig(cfg *Config) {
 	}
 }
 
+// Вспомогательная функция для чтения строковых переменных окружения
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -128,6 +168,7 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
+// Функция читает переменную окружения как целое число
 func getEnvInt(key string, defaultValue int) int {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -140,6 +181,7 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
+// Функция читает переменную окружения как число с плавающей точкой
 func getEnvFloat(key string, defaultValue float64) float64 {
 	if value := os.Getenv(key); value != "" {
 		parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
@@ -150,6 +192,7 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	return defaultValue
 }
 
+// Функция читает переменную окружения как bool
 func getEnvBool(key string, defaultValue bool) bool {
 	value := strings.TrimSpace(strings.ToLower(getEnv(key, "")))
 	if value == "" {

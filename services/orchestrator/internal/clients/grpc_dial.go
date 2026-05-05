@@ -11,11 +11,16 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// Функция создает gRPC-подключение к конкретному сервису. Принимает адрес сервиса и
+// префикс переменных окружения для конкретного сервиса, например TRANSCRIPTION, ROUTING, TICKET.
+// Возвращает готовое gRPC-подключение либо ошибку.
 func grpcConnForService(addr string, envPrefix string) (*grpc.ClientConn, error) {
 	transportCreds, err := grpcTransportCredentials(envPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("build transport credentials for %s: %w", envPrefix, err)
 	}
+
+	// Создание gRPC-клиента
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(transportCreds),
@@ -26,6 +31,8 @@ func grpcConnForService(addr string, envPrefix string) (*grpc.ClientConn, error)
 	return conn, nil
 }
 
+// Функция выбирает и создает credentials для gRPC-подключения. Принимает префикс переменных окружения. Возвращает интерфейс
+// credentials.TransportCredentials
 func grpcTransportCredentials(envPrefix string) (credentials.TransportCredentials, error) {
 	tlsEnabled := envBool(
 		envPrefix+"_TLS_ENABLED",
@@ -59,6 +66,7 @@ func grpcTransportCredentials(envPrefix string) (credentials.TransportCredential
 	return credentials.NewTLS(cfg), nil
 }
 
+// Вспомогательная функция для чтения boolean-переменных окружения.
 func envBool(name string, def bool) bool {
 	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
 	if raw == "" {

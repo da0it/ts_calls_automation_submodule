@@ -11,28 +11,39 @@ import (
 	"google.golang.org/grpc"
 )
 
+// Структура RoutingClient хранит все, что нужно для вызова router-service
 type RoutingClient struct {
-	conn   *grpc.ClientConn
+
+	// gRPC-подключение к router-service
+	conn *grpc.ClientConn
+
+	// Сгенерированный protobuf-клиент
 	client callprocessingv1.RoutingServiceClient
 }
 
+// Функция-конструктор. Создает клиента router-service. Принимает на вход адрес сервиса маршрутизации, возвращает клиент.
 func NewRoutingClient(addr string) (*RoutingClient, error) {
+
+	// Создание gRPC-подключения через вспомогательную функцию в grpc_dial.go
 	conn, err := grpcConnForService(addr, "ROUTING_GRPC")
 	if err != nil {
 		return nil, fmt.Errorf("dial routing grpc: %w", err)
 	}
 
+	// Если подключение создано, возвращается новый RoutingClient
 	return &RoutingClient{
 		conn:   conn,
 		client: callprocessingv1.NewRoutingServiceClient(conn),
 	}, nil
 }
 
+// Структура описывает запрос на маршрутизацию в JSON-формате
 type RoutingRequest struct {
 	CallID   string    `json:"call_id"`
 	Segments []Segment `json:"segments"`
 }
 
+// Результат маршрутизации, который client возвращает orchestrator
 type RoutingResponse struct {
 	IntentID         string             `json:"intent_id"`
 	IntentConfidence float64            `json:"intent_confidence"`
@@ -41,6 +52,7 @@ type RoutingResponse struct {
 	SpamCheck        *SpamCheckResponse `json:"spam_check,omitempty"`
 }
 
+// Структура описывает результат проверки на спам
 type SpamCheckResponse struct {
 	Status         string  `json:"status"`
 	PredictedLabel string  `json:"predicted_label,omitempty"`
@@ -52,20 +64,28 @@ type SpamCheckResponse struct {
 	Backend        string  `json:"backend,omitempty"`
 }
 
+// Публичный метод для обычной маршрутизации.
 func (c *RoutingClient) Route(callID string, segments []Segment) (*RoutingResponse, error) {
 	return c.route(callID, segments, false)
 }
 
+// Метод также выполняет маршрутизацию, но просит router-service пропустить проверку на спам
 func (c *RoutingClient) RouteSkippingSpam(callID string, segments []Segment) (*RoutingResponse, error) {
 	return c.route(callID, segments, true)
 }
 
+// Внутренний метод route содержит общую логику gRPC-вызова
 func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bool) (*RoutingResponse, error) {
+
+	// Создается контекст с таймаутом 60 секунд
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Создается список protobuf-сегментов.
 	pbSegments := make([]*callprocessingv1.Segment, 0, len(segments))
 	for _, seg := range segments {
+
+		// Каждый внутренний Segment преобразуется в protobuf-сегмент
 		pbSegments = append(pbSegments, &callprocessingv1.Segment{
 			Start:   seg.Start,
 			End:     seg.End,
@@ -75,6 +95,7 @@ func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bo
 		})
 	}
 
+	// gRPC-вызов router-service
 	resp, err := c.client.Route(ctx, &callprocessingv1.RouteRequest{
 		CallId:       callID,
 		Segments:     pbSegments,
@@ -88,6 +109,7 @@ func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bo
 		return nil, fmt.Errorf("routing rpc: empty response")
 	}
 
+	// Protobuf-структура spam-check преобразуется во внутреннюю структуру клиента.
 	var spamCheck *SpamCheckResponse
 	if raw := resp.GetRouting().GetSpamCheck(); raw != nil {
 		spamCheck = &SpamCheckResponse{
@@ -102,6 +124,7 @@ func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bo
 		}
 	}
 
+	// Метод возвращает результат маршрутизации
 	return &RoutingResponse{
 		IntentID:         resp.GetRouting().GetIntentId(),
 		IntentConfidence: resp.GetRouting().GetIntentConfidence(),
@@ -111,6 +134,7 @@ func (c *RoutingClient) route(callID string, segments []Segment, skipSpamGate bo
 	}, nil
 }
 
+// Закрытие gRPC-соединения
 func (c *RoutingClient) Close() error {
 	if c == nil || c.conn == nil {
 		return nil

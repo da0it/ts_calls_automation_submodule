@@ -10,20 +10,29 @@ import (
 	"time"
 )
 
+// EntityClient — это клиент для обращения к сервису извлечения сущностей
 type EntityClient struct {
-	baseURL    string
+
+	// Базовый адрес entity-service
+	baseURL string
+
+	// HTTP-клиент Go, через который отправляются запросы
 	httpClient *http.Client
 }
 
+// Функция-конструктор. Принимает адрес сервиса и возвращает готовый клиент
 func NewEntityClient(baseURL string) *EntityClient {
 	return &EntityClient{
 		baseURL: baseURL,
+
+		// Создаётся HTTP-клиент с таймаутом 30 секунд. Если entity-service не ответит за 30 секунд, запрос завершится ошибкой.
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
 }
 
+// Структура описывает одну найденную сущность.
 type ExtractedEntity struct {
 	Type       string  `json:"type"`
 	Value      string  `json:"value"`
@@ -31,6 +40,7 @@ type ExtractedEntity struct {
 	Context    string  `json:"context"`
 }
 
+// Entities — набор всех найденных сущностей, сгруппированных по типам
 type Entities struct {
 	Persons      []ExtractedEntity `json:"persons"`
 	Phones       []ExtractedEntity `json:"phones"`
@@ -41,14 +51,17 @@ type Entities struct {
 	Dates        []ExtractedEntity `json:"dates"`
 }
 
+// Тело запроса, которое модуль управления отправляет в entity-service
 type EntityRequest struct {
 	Segments []Segment `json:"segments"`
 }
 
+// Структура ответа от entity-service.
 type EntityResponse struct {
 	Entities Entities `json:"entities"`
 }
 
+// Главный метод файла. Отправляет сегменты транскрипции в entity-service и возвращает найденные сущности
 func (c *EntityClient) Extract(segments []Segment) (*Entities, error) {
 	reqBody := EntityRequest{
 		Segments: segments,
